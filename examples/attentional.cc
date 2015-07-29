@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
         cerr << "%% Using RNNEM recurrent units" << endl;
         AttentionalModel<RNNEMBuilder> am(model,
             SRC_VOCAB_SIZE, TGT_VOCAB_SIZE,
-            LAYERS, HIDDEN_DIM, ALIGN_DIM, bidir, giza, 2, nullptr, nullptr, true);
+            LAYERS, HIDDEN_DIM, ALIGN_DIM, bidir, giza, 1, nullptr, nullptr, true);
         train(model, am, training, devel, *sgd, init_file, fname, test, vm.count("curriculum"));
     }
     else {

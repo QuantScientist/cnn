@@ -19,12 +19,13 @@ struct GRUBuilder : public RNNBuilder {
   void rewind_one_step() { h.pop_back(); }
   Expression back() const { return h.back().back(); }
 
- protected:
-  void new_graph_impl(ComputationGraph& cg) override;
-  void start_new_sequence_impl(const std::vector<Expression>& h0) override;
-  Expression add_input_impl(const Expression& x) override;
+public:
+    void new_graph_impl(ComputationGraph& cg) override;
+    void start_new_sequence_impl(const std::vector<Expression>& h0) override;
+    Expression add_input_impl(const Expression& x) override;
 
-  // first index is layer, then ...
+protected:
+    // first index is layer, then ...
   std::vector<std::vector<Parameters*>> params;
 
   // first index is layer, then ...
