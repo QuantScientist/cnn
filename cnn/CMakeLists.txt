@@ -25,6 +25,7 @@ set(cnn_library_SRCS
     training.cc
     dglstm.cc
     treelstm.cc
+    expr-xtra.cc
 )
 
 # Headers:
@@ -58,6 +59,7 @@ set(cnn_library_HDRS
     training.h
     dglstm.h
     treelstm.h
+    expr-xtra.h
 )
 
 if(WITH_CUDA_BACKEND)
