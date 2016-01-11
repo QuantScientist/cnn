@@ -5,8 +5,8 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # you may need t do some explicit settings for cygwin and win32
 if(WIN64 OR WIN32)
-set(BOOST_ROOT C:/local/boost_1_58_0)
-set(BOOST_LIBRARYDIR C:/local/boost_1_58_0/lib64-msvc-12.0)
+set(BOOST_ROOT C:/local/boost_1_59_0)
+set(BOOST_LIBRARYDIR C:/local/boost_1_59_0/lib64-msvc-14.0)
 else()
 set(BOOST_ROOT /cygdrive/d/tools/boost_1_58_0/boost_1_58_0)
 set(BOOST_LIBRARYDIR /usr/local/lib)
@@ -102,12 +102,12 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/../quartzin/src/cnn)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/../conversation/src/cnn)
 
 link_directories(${BOOST_LIBRARYDIR})
 
 
 add_subdirectory(cnn)
 add_subdirectory(examples)
-add_subdirectory(../quartzin/src/cnn "${CMAKE_CURRENT_BINARY_DIR}/kaisheny/dev/src")
+add_subdirectory(../conversation/src/cnn "${CMAKE_CURRENT_BINARY_DIR}/kaisheny/dev/src")
 

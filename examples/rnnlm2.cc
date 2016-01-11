@@ -310,10 +310,9 @@ int main(int argc, char** argv) {
       training.push_back(ReadSentence(line, &d));
       ttoks += training.back().size();
       if (training.back().front() != kSOS && training.back().back() != kEOS) {
-        cerr << "Training sentence in " << infile << ":" << tlc << " didn't start or end with <s>, </s>\n";
-        abort();
-      }
-    }
+		  throw("Training sentence in %s : %d didnt start or end with <s>, </s>", infile.c_str(), tlc);
+	  }
+	}
     cerr << tlc << " lines, " << ttoks << " tokens, " << d.size() << " types\n";
   }
   d.Freeze(); // no new word types allowed
@@ -333,10 +332,9 @@ int main(int argc, char** argv) {
               dev.push_back(ReadSentence(line, &d));
               dtoks += dev.back().size();
               if (dev.back().front() != kSOS && dev.back().back() != kEOS) {
-                  cerr << "Dev sentence in " << devfile << ":" << tlc << " didn't start or end with <s>, </s>\n";
-                  abort();
-              }
-          }
+				  throw("Dev sentence in %s : %d didn't start or end with <s>, </s> ", devfile.c_str(), tlc);
+			  }
+		  }
           cerr << dlc << " lines, " << dtoks << " tokens\n";
       }
   }
@@ -376,10 +374,9 @@ int main(int argc, char** argv) {
               test.push_back(ReadSentence(line, &d));
               dtoks += test.back().size();
               if (test.back().front() != kSOS && test.back().back() != kEOS) {
-                  cerr << "Dev sentence in " << testfile << ":" << tlc << " didn't start or end with <s>, </s>\n";
-                  abort();
-              }
-          }
+				  throw("Dev sentence in %s : %d didnt start or end with <s>, </s> ", testfile.c_str(), tlc);
+			  }
+		  }
           cerr << dlc << " lines, " << dtoks << " tokens\n";
       }
 
