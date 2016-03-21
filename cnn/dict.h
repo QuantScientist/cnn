@@ -18,8 +18,6 @@
 #include <boost/serialization/string.hpp>
 #endif
 
-#define INPUT_UTF8
-
 using namespace std;
 namespace cnn {
 
@@ -30,7 +28,7 @@ class stDict {
  public:
   stDict() : frozen(false) {
 #ifdef INPUT_UTF8
-      s_unk = L"<unk>";
+      s_unk = static_cast<wstring>(L"<unk>");
 #else
       s_unk = "<unk>";
 #endif
