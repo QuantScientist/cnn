@@ -18,7 +18,7 @@
 #include <boost/serialization/string.hpp>
 #endif
 
-//#define INPUT_UTF8
+#define INPUT_UTF8
 
 using namespace std;
 namespace cnn {
