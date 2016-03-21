@@ -32,6 +32,7 @@ unsigned int VOCAB_SIZE = 0;
 
 int verbose = 0; 
 cnn::Dict d;
+cnn::WDict wd;
 int kSOS;
 int kEOS;
 
@@ -319,7 +320,7 @@ int main(int argc, char** argv) {
   kSOS = d.Convert("<s>");
   kEOS = d.Convert("</s>");
   vector<vector<int>> training, dev, test;
-  string line;
+  wstring line;
   int tlc = 0;
   int ttoks = 0;
 
@@ -327,11 +328,11 @@ int main(int argc, char** argv) {
   cerr << "Reading training data from " << infile << "...\n";
 
   {
-    ifstream in(infile);
+    wifstream in(infile);
     assert(in);
     while(getline(in, line)) {
       ++tlc;
-      training.push_back(ReadSentence(line, &d));
+//      training.push_back(ReadSentence(line, &wd));
       ttoks += training.back().size();
       if (training.back().front() != kSOS && training.back().back() != kEOS) {
 		  throw("Training sentence in %s : %d didnt start or end with <s>, </s>", infile.c_str(), tlc );
@@ -349,11 +350,11 @@ int main(int argc, char** argv) {
       string devfile = vm["devel"].as<string>();
       cerr << "Reading training data from " << devfile << "...\n";
       {
-          ifstream in(devfile);
+          wifstream in(devfile);
           assert(in);
           while (getline(in, line)) {
               ++dlc;
-              dev.push_back(ReadSentence(line, &d));
+  //            dev.push_back(ReadSentence(line, &d));
               dtoks += dev.back().size();
 			  if (dev.back().front() != kSOS && dev.back().back() != kEOS) {
 				  throw("Dev sentence in %s : %d didn't start or end with <s>, </s> ", devfile.c_str(), tlc);
@@ -391,11 +392,11 @@ int main(int argc, char** argv) {
       int dtoks = 0;
       cerr << "Reading training data from " << testfile << "...\n";
       {
-          ifstream in(testfile);
+          wifstream in(testfile);
           assert(in);
           while (getline(in, line)) {
               ++dlc;
-              test.push_back(ReadSentence(line, &d));
+//              test.push_back(ReadSentence(line, &d));
               dtoks += test.back().size();
 			  if (test.back().front() != kSOS && test.back().back() != kEOS) {
 				  throw("Dev sentence in %s : %d didnt start or end with <s>, </s> ", testfile.c_str(), tlc);
