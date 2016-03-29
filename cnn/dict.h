@@ -17,6 +17,7 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/unordered_map.hpp>
 #include <boost/serialization/string.hpp>
+#include <boost/lexical_cast.hpp>
 #endif
 
 //#define INPUT_UTF8
