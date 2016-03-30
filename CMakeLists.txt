@@ -49,9 +49,10 @@ set(LIBS ${LIBS} ${Boost_LIBRARIES})
 endif()
 include_directories(${BOOST_ROOT})
 set(LIBS ${LIBS} ${BOOST_LIBRARYDIR})
-if (WIN32 OR WIN64)
-find_package(Boost COMPONENTS program_options serialization REQUIRED)
-endif()
+
+# if (WIN32 OR WIN64)
+# find_package(Boost COMPONENTS program_options serialization REQUIRED)
+# endif()
 
 # trouble shooting:
 # if boost library cannot be found, in addition to install boost library
