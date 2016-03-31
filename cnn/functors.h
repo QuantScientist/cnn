@@ -380,8 +380,8 @@ struct FL2SGDMomentumWithDenUpdate {
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real& r, const cnn::real &x, const cnn::real &g, cnn::real &v) {
         cnn::real den = r + epsilon; 
         den = (sizeof(cnn::real) == sizeof(float))?sqrtf(den):sqrt(den);
-        v = momentum * v - scale * (*gscale) / den * g;
-        return -v - x * lambda;
+        v = momentum * v + scale * (*gscale) / den * g;
+        return v - x * lambda;
     }
     cnn::real lambda;
     cnn::real scale;
@@ -393,8 +393,8 @@ struct FL2SGDMomentumWithDenUpdate {
 struct FL2SGDMomentumUpdate {
     FL2SGDMomentumUpdate(cnn::real l, cnn::real s, cnn::real m) : lambda(l), scale(-s), momentum(m) {}
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x, const cnn::real &g, cnn::real &v) {
-        v = momentum * v - scale * g;
-        return -v - x * lambda;
+        v = momentum * v + scale * g;
+        return v - x * lambda;
     }
     cnn::real lambda;
     cnn::real scale;
