@@ -1,6 +1,7 @@
 #include "cnn/model.h"
 #include "cnn/tensor.h"
 #include "cnn/aligned-mem-pool.h"
+#include "cnn/data-util.h"
 #include "cnn/cnn.h"
 
 #include <unordered_set>
@@ -24,6 +25,8 @@
 using namespace std;
 
 namespace cnn {
+
+extern AlignedMemoryPool<ALIGN>* glb_temp_working_mem;
 
 ParametersBase::~ParametersBase() {}
 
@@ -119,15 +122,7 @@ LookupParameters::~LookupParameters()
 void LookupParameters::free_working_copies()
 {
     /// the working memory is at GPU
-    for (auto p : values_for_non_zero_grads)
-    {
-        cnn_mm_free(p.second.v);
-    }
-
-    for (auto p : grads_for_non_zero_grads)
-    {
-        cnn_mm_free(p.second.v);
-    }
+    glb_temp_working_mem->free();
 
     values_for_non_zero_grads.clear();
     grads_for_non_zero_grads.clear();
@@ -257,9 +252,9 @@ void LookupParameters::accumulate_grad(unsigned index, const Tensor& d) {
   non_zero_grads.insert(index);
 #if HAVE_CUDA
   if (grads_for_non_zero_grads.find(index) == grads_for_non_zero_grads.end()){
-      cnn::real *g = (cnn::real*)cnn_mm_malloc(d.d.size() * sizeof(cnn::real), CNN_ALIGN);
+      cnn::real *g = (cnn::real*) glb_temp_working_mem->allocate(d.d.size() * sizeof(cnn::real));
       Tensor vv(d.d, g, device_id);
-      vv.m_device_id= 0; /// for cpu
+      vv.m_device_id = device_id; /// for cpu
       TensorTools::Zero(vv);  // gradient needs to be zero in the begining
       grads_for_non_zero_grads[index] = vv;
 
@@ -280,6 +275,7 @@ void LookupParameters::accumulate_grad(unsigned index, const Tensor& d) {
       CUBLAS_CHECK(cublasSaxpy(cublas_handle, d.d.size(), reinterpret_cast<float*>(kSCALAR_ONE), reinterpret_cast<float*>(d.v), 1, reinterpret_cast<float*>(grads_for_non_zero_grads[index].v), 1));
   else if (sizeof(cnn::real) == sizeof(double))
       CUBLAS_CHECK(cublasDaxpy(cublas_handle, d.d.size(), reinterpret_cast<double*>(kSCALAR_ONE), reinterpret_cast<double*>(d.v), 1, reinterpret_cast<double*>(grads_for_non_zero_grads[index].v), 1));
+
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
   CUDA_CHECK(cudaMemcpy(grads[index].v, grads_for_non_zero_grads[index].v, sizeof(cnn::real)*d.d.size(), cudaMemcpyDeviceToHost));
 #else
