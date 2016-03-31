@@ -3980,7 +3980,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
             Expression i_r_t = i_R * i_y_t;
-            Expression i_ydist = softmax(i_r_t);
+            Expression i_ydist = log_softmax(i_r_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -3990,7 +3990,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4039,7 +4039,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
             Expression i_r_t = i_R * i_y_t;
-            Expression i_ydist = softmax(i_r_t);
+            Expression i_ydist = log_softmax(i_r_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4049,7 +4049,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4436,7 +4436,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
 
-            Expression i_ydist = softmax(i_y_t);
+            Expression i_ydist = log_softmax(i_y_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4446,7 +4446,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4494,7 +4494,7 @@ public:
                     vobs.push_back(-1);
             }
             Expression i_y_t = decoder_step(vobs, cg);
-            Expression i_ydist = softmax(i_y_t);
+            Expression i_ydist = log_softmax(i_y_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4504,7 +4504,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4888,7 +4888,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
 
-            Expression i_ydist = softmax(i_y_t);
+            Expression i_ydist = log_softmax(i_y_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4898,7 +4898,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4946,7 +4946,7 @@ public:
                     vobs.push_back(-1);
             }
             Expression i_y_t = decoder_step(vobs, cg);
-            Expression i_ydist = softmax(i_y_t);
+            Expression i_ydist = log_softmax(i_y_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4956,7 +4956,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
