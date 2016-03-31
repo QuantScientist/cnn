@@ -6,6 +6,7 @@
 #include "cnn/macros.h"
 #include "cnn/simd-functors.h"
 #include "cnn/functors.h"
+#include "cnn/data-util.h"
 #if HAVE_CUDA
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -1323,8 +1324,12 @@ void PickNegLogSoftmax::backward_impl(const vector<const Tensor*>& xs,
 
 size_t LogSoftmax::aux_storage_size() const {
     /// save space for softmax and a vector of nutt 
+#ifdef HAVE_CUDA
+    return 0;
+#else
     int sz = dim.size() + dim.cols();
     return sz* sizeof(cnn::real);
+#endif
 }
 
 void LogSoftmax::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
@@ -1344,12 +1349,13 @@ void LogSoftmax::backward_impl(const vector<const Tensor*>& xs,
 {
     unsigned rows = dEdf.d.rows();
     unsigned cols = dEdf.d.cols();
-    Tensor softmax(fx.d, static_cast<cnn::real*>(aux_mem)+cols, device_id);
-    cnn::real* off_diag_sum = static_cast<cnn::real*>(aux_mem);
 
 #if HAVE_CUDA
-    gpu::logsoftmax_backward(xs[0]->d.rows(), xs[0]->d.cols(), fx.v, dEdf.v, dEdxi.v, softmax.v, off_diag_sum);
+    gpu::logsoftmax_backward(xs[0]->d.rows(), xs[0]->d.cols(), fx.v, dEdf.v, dEdxi.v);
 #else
+
+    Tensor softmax(fx.d, static_cast<cnn::real*>(aux_mem)+cols, device_id);
+    cnn::real* off_diag_sum = static_cast<cnn::real*>(aux_mem);
 
     (*softmax).array() = (*fx).array().exp();
 
