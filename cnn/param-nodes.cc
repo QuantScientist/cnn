@@ -1,11 +1,35 @@
 #include "cnn/param-nodes.h"
-#include "cnn/tensor.h"
-
+#include "cnn/macros.h"
 #include <sstream>
+#include "cnn/model.h"
+#include "cnn/tensor.h"
+#include "cnn/aligned-mem-pool.h"
+#include "cnn/data-util.h"
+#include "cnn/cnn.h"
+
+#include <unordered_set>
+#include <iostream>
+
+#include <fstream>
+#include <sstream>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
+
+#if HAVE_CUDA
+#include <thrust/version.h>
+#include "cnn/gpu-ops.h"
+#include "cnn/cuda.h"
+#include <thrust/device_ptr.h>
+#include <thrust/transform.h>
+#include <thrust/transform_reduce.h>
+#include <cnn/functors.h>
+#endif
 
 using namespace std;
 
 namespace cnn {
+
+extern AlignedMemoryPool<ALIGN>* glb_temp_working_mem;
 
 string ConstParameterNode::as_string(const vector<string>& arg_names) const {
   ostringstream s;
@@ -188,8 +212,11 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
     fx.m_device_id = device_id;
     if (params->values_for_non_zero_grads.find(*pindex) == params->values_for_non_zero_grads.end())
     {
-        cnn::real *v = (cnn::real*) cnn_mm_malloc(sizeof(cnn::real)*fx.d.size(), CNN_ALIGN);
-        params->values_for_non_zero_grads[*pindex] = Tensor(fx.d, v, fx.m_device_id); /// working copies for the values
+        cnn::real *v = (cnn::real*) glb_temp_working_mem->allocate(sizeof(cnn::real)*fx.d.size());
+        Tensor vv(fx.d, v, fx.m_device_id); /// working copies for the values
+        vv.m_device_id = device_id; /// for cpu
+        TensorTools::Zero(vv);  // gradient needs to be zero in the begining
+        params->values_for_non_zero_grads[*pindex] = vv; 
     }
     CUDA_CHECK(cudaMemcpy(params->values_for_non_zero_grads[*pindex].v, fx.v, sizeof(cnn::real)*fx.d.size(), cudaMemcpyDeviceToDevice));   /// have the same value
 #else
