@@ -40,7 +40,7 @@ the following commented out for windows. need to figure out support for both win
 -      : "=r"(logn)
 -      : "r" (n-1));
  */
-  int logn = log(n);
+  int logn = (int)log(n);
   logn = logn > 9 ? 9 : (logn < 4 ? 4 : logn);
   ++logn;
   int threads = 1 << logn;
@@ -57,6 +57,7 @@ void Initialize_GPU(int& argc, char**& argv);
 extern cudnnDataType_t cudnnDataType;
 extern cublasHandle_t cublas_handle;
 extern cudnnHandle_t cudnn_handle;
+
 } // namespace cnn
 
 #endif

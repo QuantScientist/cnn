@@ -2,6 +2,7 @@
 
 #include "cnn/cnn.h"
 #include "cnn/cuda.h"
+#include <cudnn.h>
 
 #pragma comment(lib,"cublas.lib")
 #pragma comment(lib,"cudart_static.lib")
@@ -15,7 +16,6 @@ namespace cnn {
 cublasHandle_t cublas_handle;
 cudnnHandle_t cudnn_handle;
 cudnnDataType_t cudnnDataType;
-
 void Initialize_CUDNN()
 {
     cudnn_handle = nullptr;
@@ -47,6 +47,7 @@ void Free_GPU()
 #ifdef HAVE_CUDA
     CHECK_CUDNN(cudnnDestroy(cudnn_handle));
     CUBLAS_CHECK(cublasDestroy(cublas_handle));
+
 #endif
 }
 
@@ -95,6 +96,7 @@ void Initialize_GPU(int& argc, char**& argv) {
   Initialize_Consts_And_Store_In_GPU();
 
   Initialize_CUDNN();
+
 }
 
 } // namespace cnn
