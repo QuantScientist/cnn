@@ -16,7 +16,7 @@
 #include <vector>
 #include <tuple>
 #include <functional>
-#include <boost/system/config.hpp>
+//#include <boost/system/config.hpp>
 #include <boost/locale.hpp>
 #include <boost/locale/encoding_utf.hpp>
 #include <boost/algorithm/string.hpp>
@@ -1465,3 +1465,73 @@ vector<unsigned int> hashing(const vector<int>& obs, int direct_order, int hash_
 
     return hash;
 }
+
+bool is_nan( const cnn::real & value)
+{
+    return value != value;
+}
+
+
+void display_value(int n, const cnn::real* val, string str)
+{
+    bool b_is_nan = false;
+#ifdef HAVE_CUDA
+    cnn::real * cpu_mem = (cnn::real*)malloc(sizeof(cnn::real) * n);
+    CUDA_CHECK(cudaMemcpy(cpu_mem, val, sizeof(cnn::real)*n, cudaMemcpyDeviceToHost));
+    cout << str << " ";
+    for (int i = 0; i < n; i++)
+    {
+        cout << " " << cpu_mem[i];
+        b_is_nan |= is_nan(cpu_mem[i]);
+    }
+    cout << endl;
+    free(cpu_mem);
+
+    if (b_is_nan)
+    {
+        cerr << " NAN found ";
+        throw(std::runtime_error("NAN found"));
+    }
+#else
+    for (int i = 0; i < n; i++)
+        cout << " " << val[i];
+    cout << endl;
+#endif
+}
+
+void check_value(int n, const cnn::real* val, string str)
+{
+    bool b_is_nan = false;
+    int ik;
+#ifdef HAVE_CUDA
+    cnn::real * cpu_mem = (cnn::real*)malloc(sizeof(cnn::real) * n);
+    CUDA_CHECK(cudaMemcpy(cpu_mem, val, sizeof(cnn::real)*n, cudaMemcpyDeviceToHost));
+    for (int i = 0; i < n; i++)
+    {
+        b_is_nan |= is_nan(cpu_mem[i]);
+        if (b_is_nan)
+        {
+            ik = i;
+            break;
+        }
+    }
+    free(cpu_mem);
+
+#else
+    for (int i = 0; i < n; i++)
+    {
+        if (is_nan(val[i]))
+        {
+            ik = i;
+            b_is_nan = true;
+            break;
+        }
+    }
+#endif
+    if (b_is_nan)
+    {
+        cerr << " NAN found in " << str << " at " << ik;
+        throw(std::runtime_error("NAN found"));
+    }
+}
+

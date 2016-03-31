@@ -246,4 +246,9 @@ public:
 /// e.g., direct_order = 2, the output includes both unigram and bigram hashing
 vector<unsigned int> hashing(const vector<int> & obs, int direct_order, int hash_size);
 
+bool is_nan(const cnn::real & value);
 
+void display_value(int n, const cnn::real* val, string str);
+
+/// find if there is nan
+void check_value(int n, const cnn::real* val, string str);
