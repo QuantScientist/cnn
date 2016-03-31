@@ -127,17 +127,19 @@ struct RmsPropWithMomentumTrainer : public Trainer {
     explicit RmsPropWithMomentumTrainer(Model* m, cnn::real lam = 1e-6, cnn::real e0 = 0.1, cnn::real eps = 1e-20, cnn::real rho = 0.95, cnn::real mom = 0.9) :
         Trainer(m, lam, e0), epsilon(eps), rho(rho), shadow_params_allocated(false), momentum(mom) {}
     void update(cnn::real nutt, cnn::real scale = 1.0) override;
+    ~RmsPropWithMomentumTrainer();
 
     void compute_gradient_norm(
-        std::vector<Parameters*> plist, std::vector<cnn::real>& vpgrd_norm,
-        std::vector<LookupParameters*> llist, std::vector<cnn::real>& vl_grd_norm);
+        std::vector<Parameters*> plist, cnn::real *ptr_gnorm, int size_ptr_gnorm,
+        std::vector<LookupParameters*> llist, cnn::real *ptr_gnorm_lookup, int size_ptr_gnorm_lookup);
 
     cnn::real epsilon;
     cnn::real rho;
     bool shadow_params_allocated;
-    std::vector<cnn::real> hg; // History of gradients
-    std::vector<std::vector<cnn::real> > hlg;
-
+    cnn::real* hg; // History of gradients
+    /// the number of elements are model->parameters_list().size()
+    std::vector<cnn::real* > hlg;
+    /// the number of 
     cnn::real momentum;
     // the following represent the current velocity
     std::vector<ShadowParameters> vp;
