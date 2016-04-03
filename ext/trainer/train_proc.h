@@ -10,6 +10,7 @@
 #include "cnn/lstm.h"
 #include "cnn/dglstm.h"
 #include "cnn/dict.h"
+#include "cnn/model.h"
 #include "cnn/expr.h"
 #include "cnn/cnn-helper.h"
 #include "ext/dialogue/attention_with_intention.h"
@@ -32,6 +33,8 @@
 #include <boost/archive/text_wiarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_woarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/codecvt_null.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/variables_map.hpp>
@@ -972,10 +975,7 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model); 
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1048,10 +1048,8 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
             ddloss = smoothed_ppl(ddloss);
             if (ddloss < largest_cost) {
                 largest_cost = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+
+                save_cnn_model(out_file, &model); 
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -1196,10 +1194,9 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             ddloss = smoothed_ppl(ddloss);
             if (ddloss < best) {
                 best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+
+                save_cnn_model(out_file, &model);
+
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -1217,10 +1214,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             break;
         }
         else{
-            ofstream out(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
     }
 }
@@ -1246,10 +1240,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model);
 
     reset_smoothed_ppl();
 
@@ -1397,10 +1388,9 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
             cnn::real ddloss = smoothed_ppl(dev_set_scores->dloss);
             if (ddloss < best) {
                 best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+
+                save_cnn_model(out_file, &model);
+
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -1433,10 +1423,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model);
 
     reset_smoothed_ppl();
 
@@ -1532,10 +1519,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
             {
                 best = i_ppl;
 
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+                save_cnn_model(out_file, &model);
             }
             else
             {
@@ -1618,10 +1602,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1743,15 +1724,9 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
         }
     }
 
-    ofstream out2(out_file, ofstream::out);
-    boost::archive::text_oarchive oa2(out2);
-    oa2 << model;
-    out2.close();
+    save_cnn_model(out_file, &model);
 
-    ofstream out3(out_file + ".pretrained", ofstream::out);
-    boost::archive::text_oarchive oa3(out3);
-    oa3 << model;
-    out3.close();
+    save_cnn_model(out_file + ".pretrained", &model); 
 
 }
 
@@ -1799,10 +1774,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
             training_numturn2did = get_numturn2dialid(training);
 //#define DEBUG
 #ifndef DEBUG
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model); 
 #endif
             sgd.update_epoch();
 
@@ -1817,10 +1789,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
                     /// save the model with the best performance on the dev set
                     largest_dev_cost = ddloss;
 
-                    ofstream out(out_file, ofstream::out);
-                    boost::archive::text_oarchive oa(out);
-                    oa << model;
-                    out.close();
+                    save_cnn_model(out_file, &model); 
                 }
                 else{
                     sgd.eta0 *= 0.5; /// reduce learning rate
@@ -2489,10 +2458,7 @@ void ClassificationTrainProcess<AM_t>::split_data_batch_train(string train_filen
             {
                 continue;
             }
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch),&model);
 
             sgd.update_epoch();
         }
@@ -2501,10 +2467,7 @@ void ClassificationTrainProcess<AM_t>::split_data_batch_train(string train_filen
 
         if (fmod(trial, 50) == 0)
         {
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
         trial++;
     }
@@ -2661,10 +2624,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
             ddloss = smoothed_ppl(ddloss);
             if (ddloss < best) {
                 best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+                save_cnn_model(out_file, &model);
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -2682,10 +2642,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
             break;
         }
         else{
-            ofstream out(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
     }
 }

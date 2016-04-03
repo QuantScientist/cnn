@@ -10,6 +10,8 @@
 #include <sstream>
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
 
 #if HAVE_CUDA
 #include <thrust/version.h>
@@ -96,12 +98,11 @@ void Parameters::clear() {
 
 LookupParameters::~LookupParameters()
 {
-    bool b_cpu = true;
     for (unsigned i = 0; i < values.size(); ++i) {
         auto& v = values[i];
-        cnn_mm_free(v.v, b_cpu);
+        cnn_mm_free_host(v.v);
         auto& g = grads[i];
-        cnn_mm_free(g.v, b_cpu);
+        cnn_mm_free_host(g.v);
     }
 
     free_working_copies();
@@ -351,15 +352,31 @@ void Model::reset_gradient() {
 }
 
 void save_cnn_model(std::string filename, Model* model) {
-    std::ofstream out(filename);
+#ifdef BINARY_BOOST
+    ofstream out(filename, ios::binary);
+    boost::archive::binary_oarchive oa(out);
+#else
+    ofstream out(filename, ofstream::out);
     boost::archive::text_oarchive oa(out);
-    oa << (*model);
+#endif
+    oa << *model;
+    out.close();
 };
 
 void load_cnn_model(std::string filename, Model* model) {
-    std::ifstream in(filename);
-    boost::archive::text_iarchive ia(in);
-    ia >> (*model);
+#ifdef BINARY_BOOST
+    ifstream in(filename, ios::binary);
+    if (in.is_open())
+    {
+        boost::archive::binary_iarchive ia(in);
+#else
+    ifstream in(filename, ifstream::in);
+    if (in.is_open())
+    {
+        boost::archive::text_iarchive ia(in);
+#endif
+        ia >> *model;
+    }
 };
 
 

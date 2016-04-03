@@ -57,7 +57,6 @@ private:
                                  // or Glorot initialization if minmax = 0
   friend class boost::serialization::access;
   template<class Archive> void serialize(Archive& ar, const unsigned int version) {
-      ar & name;
       ar & dim;
       ar & values;
   }
@@ -99,7 +98,6 @@ private:
   friend class boost::serialization::access;
   template<class Archive>
   void save(Archive& ar, const unsigned int) const {
-    ar & name;
     ar & dim;
     int nv = values.size();
     ar & nv;
@@ -110,9 +108,8 @@ private:
   }
   template<class Archive>
   void load(Archive& ar, const unsigned int) {
-    ar & name;
+    int nv; 
     ar & dim;
-    int nv;
     ar & nv;
     assert(nv == (int)values.size());
     for (unsigned i = 0; i < values.size(); ++i)

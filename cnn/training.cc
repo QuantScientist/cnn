@@ -293,7 +293,7 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
 #ifdef HAVE_CUDA
         CUDA_CHECK(cudaMallocHost(&tmp_ptr, sizeof(cnn::real) * i_mdl_size[k]));
 #else
-        tmp_ptr = malloc(sizeof(cnn::real) * i_mdl_size[k]);
+        tmp_ptr = (cnn::real*)malloc(sizeof(cnn::real) * i_mdl_size[k]);
 #endif
         if (tmp_ptr == nullptr)
         {
@@ -357,7 +357,11 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
         vl_grd_norm[i] = v_norm[1][i];
 
     for (int i = 0; i < 2; i++)
+#ifdef HAVE_CUDA
         cudaFreeHost(v_norm[i]);
+#else
+        free(v_norm[i]);
+#endif
 }
 
 void RmsPropWithMomentumTrainer::update(cnn::real nutt, cnn::real scale) {
