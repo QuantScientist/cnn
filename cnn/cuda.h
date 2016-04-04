@@ -40,7 +40,7 @@ the following commented out for windows. need to figure out support for both win
 -      : "=r"(logn)
 -      : "r" (n-1));
  */
-  int logn = log(n);
+  int logn = (int) log(n);
   logn = logn > 9 ? 9 : (logn < 4 ? 4 : logn);
   ++logn;
   int threads = 1 << logn;

@@ -62,65 +62,13 @@ __global__ void slowReduceKernel(int n, const cnn::real* x0, const cnn::real* x1
 }
 
 // adapted from NVIDIA example
-__global__ void ker_l2_norm_reducer(int n, const cnn::real *x0, cnn::real* res, bool sq, bool acc) {
-    __shared__ cnn::real buf[256];
-    for (int i = threadIdx.x; i < 256; i += blockDim.x) {
-        cnn::real sum = 0;
-        for (int pos = i; pos < n; pos += 256) {
-            const cnn::real d = x0[pos];
-            sum += sq ? d * d : d;
-        }
-        buf[i] = sum;
-    }
-    for (int stride = 128; stride > 0; stride >>= 1) {
-        __syncthreads();
-        for (int i = threadIdx.x; i < stride; i += blockDim.x)
-            buf[i] += buf[stride + i];
-    }
-    __syncthreads();
-    if (threadIdx.x == 0) {
-        if (acc) res[0] += buf[0]; else res[0] = buf[0];
-    }
-}
+__global__ void ker_l2_norm_reducer(int n, const cnn::real *x0, cnn::real* res, bool sq, bool acc);
 
 // A kernel to calculate the dot product between two arrays
-__global__ void ker_dotproduct(int n, const cnn::real* x, const cnn::real* y, cnn::real* z) {
-    __shared__ cnn::real buf[256];
-    for (int i = threadIdx.x; i < 256; i += blockDim.x) {
-        cnn::real sum = 0;
-        for (int pos = i; pos < n; pos += 256)
-            sum += x[pos] * y[pos];
-        buf[i] = sum;
-    }
-    for (int stride = 128; stride > 0; stride >>= 1) {
-        __syncthreads();
-        for (int i = threadIdx.x; i < stride; i += blockDim.x)
-            buf[i] += buf[stride + i];
-    }
-    __syncthreads();
-    if (threadIdx.x == 0)
-        z[0] = buf[0];
-}
+__global__ void ker_dotproduct(int n, const cnn::real* x, const cnn::real* y, cnn::real* z);
 
 // adapted from NVIDIA example
-__global__ void ker_sqeucdist(int n, const cnn::real *x0, const cnn::real *x1, cnn::real* res) {
-    __shared__ cnn::real buf[256];
-    for (int i = threadIdx.x; i < 256; i += blockDim.x) {
-        cnn::real sum = 0;
-        for (int pos = i; pos < n; pos += 256) {
-            const cnn::real d = x0[pos] - x1[pos];
-            sum += d * d;
-        }
-        buf[i] = sum;
-    }
-    for (int stride = 128; stride > 0; stride >>= 1) {
-        __syncthreads();
-        for (int i = threadIdx.x; i < stride; i += blockDim.x)
-            buf[i] += buf[stride + i];
-    }
-    __syncthreads();
-    if (threadIdx.x == 0) res[0] = buf[0];
-}
+__global__ void ker_sqeucdist(int n, const cnn::real *x0, const cnn::real *x1, cnn::real* res);
 
 
 } // namespace gpu
