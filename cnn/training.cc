@@ -248,14 +248,13 @@ void RmsPropTrainer::update(cnn::real nutt, cnn::real scale) {
   }
 
   const cnn::real gscale = clip_gradients(nutt);
-  cnn::real nutt_scale = 1.0 / nutt;
   pi = 0;
   for (auto p : model->parameters_list()) {
     cnn::real& d2 = hg[pi++];
     auto reg = (*p->values) * lambda;
     cnn::real g2 = (*p->g).squaredNorm();
     d2 = rho * d2 + (1.0 - rho) * g2;
-    *p->values -= ((eta * scale * gscale * nutt_scale / sqrt(d2 + epsilon)) * *p->g + reg);
+    *p->values -= ((eta * scale * gscale / sqrt(d2 + epsilon)) * *p->g + reg);
     p->clear();
   }
 
@@ -267,7 +266,7 @@ void RmsPropTrainer::update(cnn::real nutt, cnn::real scale) {
       auto reg = (*p->values[i]) * lambda;
       cnn::real g2 = (*p->grads[i]).squaredNorm();
       d2 = rho * d2 + (1.0 - rho) * g2;
-      *p->values[i] -= ((eta * scale * gscale * nutt_scale / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
+      *p->values[i] -= ((eta * scale * gscale  / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
     }
     p->clear();
   }
@@ -396,7 +395,9 @@ void RmsPropWithMomentumTrainer::update(cnn::real nutt, cnn::real scale) {
 
     const cnn::real gscale = clip_gradients(nutt, gg);
 
-    cnn::real nutt_scale = 1.0 / nutt;
+    /// no need to normalize with the number of sentences as the SGD update
+    /// since the gradient norm after sqrt is proportional to the number of sentences. 
+    /// during the following rmsprop_momentum_update, g.v will be normalized with the denominator of the gradient norm
     pi = 0;
 
     for (auto p : model->parameters_list()) {
@@ -431,7 +432,7 @@ void RmsPropWithMomentumTrainer::update(cnn::real nutt, cnn::real scale) {
             auto reg = (*p->values[i]) * lambda;
             cnn::real g2 = vlgrd_norm[li];
             d2 = rho * d2 + (1.0 - rho) * g2;
-            (*v) = momentum * (*v) - (eta * scale * gscale  / sqrt(d2 + epsilon)) * *p->grads[i];
+            (*v) = momentum * (*v) - (eta * scale * gscale / sqrt(d2 + epsilon)) * *p->grads[i];
             *p->values[i] += *v - reg; 
 #else
             gpu::rmsprop_momentum_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, v.v, &d2, eta * scale * gscale, lambda, momentum, rho, epsilon, vlgrd_norm[li]);
