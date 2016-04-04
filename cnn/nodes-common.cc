@@ -11,7 +11,7 @@ namespace cnn {
     inline bool LooksLikeVector(const Dim& d) {
         if (d.ndims() == 1) return true;
         if (d.ndims() > 1) {
-            for (int i = 1; i < d.ndims(); ++i)
+            for (unsigned int i = 1; i < d.ndims(); ++i)
             if (d[i] != 1) return false;
         }
         return true;
@@ -20,7 +20,7 @@ namespace cnn {
     inline bool LooksLikeMatrix(const Dim& d) {
         if (d.ndims() == 2) return true;
         if (d.ndims() > 2) {
-            for (int i = 2; i < d.ndims(); ++i)
+            for (unsigned int i = 2; i < d.ndims(); ++i)
             if (d[i] != 1) return false;
         }
         return true;

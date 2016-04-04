@@ -30,7 +30,7 @@ struct RNNBuilder {
       input_dims = ref.input_dims;
       params = ref.params;
       param_vars = ref.param_vars;
-      layers = input_dims.size();
+      layers = (unsigned int) input_dims.size();
       cur = ref.cur; 
       dparallel = ref.dparallel;
   }
@@ -63,7 +63,7 @@ struct RNNBuilder {
     sm.transition(RNNOp::add_input);
     head.push_back(cur);
     int rcp = cur;
-    cur = head.size() - 1;
+    cur = (int) head.size() - 1;
     return add_input_impl(rcp, x);
   }
 
@@ -73,7 +73,7 @@ struct RNNBuilder {
       sm.transition(RNNOp::add_input);
       head.push_back(cur);
       int rcp = cur;
-      cur = head.size() - 1;
+      cur = (int) head.size() - 1;
       return add_input_impl(rcp, x);
   }
 
@@ -83,7 +83,7 @@ struct RNNBuilder {
   Expression add_input(const RNNPointer& prev, const Expression& x) {
     sm.transition(RNNOp::add_input);
     head.push_back(prev);
-    cur = head.size() - 1;
+    cur = (int) head.size() - 1;
     return add_input_impl(prev, x);
   }
 
@@ -93,7 +93,7 @@ struct RNNBuilder {
   Expression add_input(const std::vector<Expression>& prv_history, const Expression& x) {
       sm.transition(RNNOp::add_input);
       head.push_back(cur);
-      cur = head.size() - 1;
+      cur = (int) head.size() - 1;
       return add_input_impl(prv_history, x);
   }
 
