@@ -102,7 +102,7 @@ class AlignedMemoryPool {
     if (rounded_n + used > capacity)
       return nullptr;
     void * res = static_cast<char*>(mem)+used;
-    used += rounded_n;
+    used += (unsigned long) rounded_n;
     return res;
   }
   void free() {

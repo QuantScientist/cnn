@@ -37,7 +37,7 @@ class stDict {
 #endif
   }
 
-  inline unsigned size() const { return words_.size(); }
+  inline unsigned size() const { return (unsigned) words_.size(); }
 
   inline bool Contains(const T& words) {
       return !(d_.find(words) == d_.end());
@@ -65,7 +65,7 @@ class stDict {
           }
       }
       words_.push_back(word);
-      return d_[word] = words_.size() - 1;
+      return d_[word] = (int) words_.size() - 1;
     } else {
       return i->second;
     }

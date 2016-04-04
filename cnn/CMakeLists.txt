@@ -131,8 +131,8 @@ if(WITH_CUDA_BACKEND)
   SET(CUDA_PROPAGATE_HOST_FLAGS OFF)
   cuda_add_library(cnncuda STATIC gpu-ops.cu gpu-kernels.cu
       OPTIONS
-          DEBUG -g;-G;-Xcompiler "/wd4819,/EHsc,/W3,/nologo,/Od,/Zi,/RTC1";-Xcompiler /MTd
-          RELEASE -Xcompiler "/wd4819,/EHsc,/W3,/nologo,/O2,/Zi";-Xcompiler /MT
+          DEBUG -g;-G;-Xcompiler "/wd4819,/EHsc,/W3,/nologo,/Od,/Zi,/RTC1"; -Xcompiler "/MTd"
+          RELEASE -Xcompiler "/wd4819,/EHsc,/W3,/nologo,/O2,/Zi"; -Xcompiler "/MT"
   )
 endif(WITH_CUDA_BACKEND)
 

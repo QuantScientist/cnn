@@ -99,7 +99,7 @@ private:
   template<class Archive>
   void save(Archive& ar, const unsigned int) const {
     ar & dim;
-    int nv = values.size();
+    int nv = (int) values.size();
     ar & nv;
     for (unsigned i = 0; i < values.size(); ++i)
     {
@@ -152,8 +152,8 @@ private:
     friend class boost::serialization::access;
     template<class Archive>
     void save(Archive& ar, const unsigned int version) const {
-      int np = params.size();
-        int nlp = lookup_params.size();
+        int np = (int) params.size();
+        int nlp = (int) lookup_params.size();
         ar & np;
         ar & nlp;
         for (unsigned i = 0; i < params.size(); ++i)
@@ -162,7 +162,7 @@ private:
           ar & *lookup_params[i];
     }
     template<class Archive>
-    void load(Archive& ar, const unsigned int version) {
+    void load(Archive& ar, const unsigned int ) {
         int np, nlp;
         ar & np;
         ar & nlp;
