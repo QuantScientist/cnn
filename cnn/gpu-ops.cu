@@ -296,8 +296,26 @@ void row_element_multiply_with(int arow, int acol, const cnn::real * a, int brow
     cudaEventDestroy(done);
 }
 
-void logsoftmax(int row, int col, const cnn::real* x0, cnn::real* y) 
+/**
+logsoftmax opreations using cudnn
+notice that cuNN uses rwo-major.
+so the N here is col.
+*/
+void logsoftmax(int row, int col, const cnn::real* x0, cnn::real* y)
 {
+    cudnnTensorDescriptor_t pInputDesc;
+    int n = col; int c = 1; int h = 1; int w = row;
+
+    cnn::real one = 1.0, zero = 0.0;
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&pInputDesc));
+    CHECK_CUDNN(cudnnSetTensor4dDescriptor(pInputDesc, CUDNN_TENSOR_NCHW, cudnnDataType, n, c, h, w));
+    CHECK_CUDNN(cudnnSoftmaxForward(cudnn_handle, CUDNN_SOFTMAX_LOG, CUDNN_SOFTMAX_MODE_INSTANCE,
+        &one, pInputDesc, x0,
+        &zero, pInputDesc, y));
+
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(pInputDesc));
+    /*
+    old code
     cudaStream_t t_stream = cudaStreamDefault;
 
     int N = col;
@@ -312,16 +330,31 @@ void logsoftmax(int row, int col, const cnn::real* x0, cnn::real* y)
     cudaEventSynchronize(done);
     
     cudaEventDestroy(done);
+    */
 }
 
-void logsoftmax_backward(int row, int col, const cnn::real *fx, const cnn::real *dEdf, cnn::real *dEdx, cnn::real * gpu_softmax, cnn::real *grd)
+void logsoftmax_backward(int row, int col, const cnn::real *fx, const cnn::real *dEdf, cnn::real *dEdx)
 {
+    cudnnTensorDescriptor_t pInputDesc;
+    int n = col; int c = 1; int h = 1; int w = row;
+    cnn::real one = 1.0;
+
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&pInputDesc));
+    CHECK_CUDNN(cudnnSetTensor4dDescriptor(pInputDesc, CUDNN_TENSOR_NCHW, cudnnDataType, n, c, h, w));
+    CHECK_CUDNN(cudnnSoftmaxBackward(cudnn_handle, CUDNN_SOFTMAX_LOG, CUDNN_SOFTMAX_MODE_INSTANCE,
+        &one, pInputDesc, fx, pInputDesc, dEdf,
+        &one, pInputDesc, dEdx));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(pInputDesc));
+    /*
+    old code
+    
     vexp(row * col, fx, gpu_softmax);
     vector_sum(row, col, dEdf, grd, true);
     row_element_multiply_with(1, col, grd, row, col, gpu_softmax);
 
     auto tb = SizeToBlockThreadPair(col * row);
     accBinaryExprKernel << <tb.first, tb.second >> >(col * row, dEdf, gpu_softmax, dEdx, FSubtract());
+    */
 }
 
 /** 
