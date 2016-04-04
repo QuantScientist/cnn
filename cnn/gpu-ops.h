@@ -61,7 +61,7 @@ namespace gpu {
     void pnlsoftmax(int n, int elem_idx, const cnn::real* x0, cnn::real* y, cnn::real* logz);
     void pnlsoftmax_backward(int n, int elem_idx, const cnn::real* x0, const cnn::real* dEdf, const cnn::real* logz, cnn::real* dEdx);
     void logsoftmax(int row, int col, const cnn::real* x0, cnn::real* y);
-    void logsoftmax_backward(int row, int col, const cnn::real* fx, const cnn::real* dEdf, cnn::real* dEdx, cnn::real *softmax, cnn::real* row_sum_grd);
+    void logsoftmax_backward(int row, int col, const cnn::real *fx, const cnn::real *dEdf, cnn::real *dEdx);
     void softmax(int row, int col, const cnn::real* x0, cnn::real* y);
     void softmax_backward(int row, int col, const cnn::real *fx, const cnn::real *dEdf, cnn::real *dEdx);
     void sgd_update(int n, const cnn::real* g, cnn::real* x, cnn::real scale, cnn::real lambda);
