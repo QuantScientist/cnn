@@ -6,6 +6,8 @@ namespace cnn {
 
 using namespace std;
 
+extern AlignedMemoryPool<ALIGN>* glb_temp_working_mem ;
+
 template <class Derived>
 bool is_valid(const Eigen::MatrixBase<Derived>& x) {
   return ((x - x).array() == (x - x).array()).all();
@@ -277,7 +279,7 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
     std::vector<Parameters*> plist, std::vector<cnn::real>& vpgrd_norm,
     std::vector<LookupParameters*> llist, std::vector<cnn::real>& vl_grd_norm)
 {
-    vector<cnn::real*> v_norm(2);
+    cnn::real* v_norm;
 
     /// get the number of parameters for parm and lookup_param
     vector<int> i_mdl_size(2, plist.size());
@@ -286,80 +288,62 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
         for (auto i : p->non_zero_grads) i_mdl_size[1]++;
     }
 
-    for (int k = 0; k < 2; k++)
-    {
-        cnn::real *tmp_ptr;
+    int i_mdl_total_size = i_mdl_size[0] + i_mdl_size[1];
 #ifdef HAVE_CUDA
-        CUDA_CHECK(cudaMallocHost(&tmp_ptr, sizeof(cnn::real) * i_mdl_size[k]));
+    v_norm = (cnn::real*) glb_temp_working_mem->allocate(sizeof(cnn::real) * i_mdl_total_size);
 #else
-        tmp_ptr = (cnn::real*)malloc(sizeof(cnn::real) * i_mdl_size[k]);
-#endif
-        if (tmp_ptr == nullptr)
-        {
-            cerr << "cannot allocate space" << endl;
-            runtime_error("cannot allocate space");
-        }
-        v_norm[k] = tmp_ptr;
-    }
-#if HAVE_CUDA
-    cnn::real * ptr_gnorm_param[2];
-    for (int k = 0; k < 2; k++)
+    v_norm = (cnn::real*)malloc(sizeof(cnn::real) * i_mdl_total_size);
+    if (v_norm == nullptr)
     {
-        CUDA_CHECK(cudaMalloc(&ptr_gnorm_param[k], sizeof(cnn::real)*i_mdl_size[k]));
+        cerr << "cannot allocate space" << endl;
+        runtime_error("cannot allocate space");
     }
 #endif
+    
     int pi = 0;
     for (auto p : plist) {
 #if HAVE_CUDA
-        gpu::l2_norm_reducer(p->g.d.size(), p->g.v, &ptr_gnorm_param[0][pi], true, false);
+        gpu::l2_norm_reducer(p->g.d.size(), p->g.v, v_norm + pi, true, false);
 #else
         cnn::real g2 = (*p->g).squaredNorm();
-        v_norm[0][pi] = g2;
+        *(v_norm+pi) = g2;
 #endif
         pi++;
     }
 
-    pi = 0;
     for (auto p : llist) {
         for (auto i : p->non_zero_grads) {
 #if HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
-            gpu::l2_norm_reducer(p->grads_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, &ptr_gnorm_param[1][pi], true, false);
+            gpu::l2_norm_reducer(p->grads_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, v_norm + pi, true, false);
 #else
-            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, &ptr_gnorm_param[1][pi], true, false);
+            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, ptr_gnorm_param+pi, true, false);
 #endif
 #else
             cnn::real g2 = (*p->grads[i]).squaredNorm();
-            v_norm[1][pi] = g2;
+            *(v_norm+pi) = g2;
 #endif
             pi++;
         }
     }
 
-#if HAVE_CUDA
-    for (int k = 0; k < 2; k++)
-    {
-        CUDA_CHECK(cudaMemcpy(&v_norm[k][0], ptr_gnorm_param[k], sizeof(cnn::real)*i_mdl_size[k], cudaMemcpyDeviceToHost));
-    }
-    for (int k = 0; k < 2; k++)
-    {
-        CUDA_CHECK(cudaFree(ptr_gnorm_param[k]));
-    }
+#ifdef HAVE_CUDA
+    /// because of using unified memory, need to synchronize GPU to CPU memory
+    cudaDeviceSynchronize();
 #endif
 
     vpgrd_norm.resize(i_mdl_size[0]);
     for (int i = 0; i < i_mdl_size[0]; i++)
-        vpgrd_norm[i] = v_norm[0][i];
+        vpgrd_norm[i] = *(v_norm + i);
 
     vl_grd_norm.resize(i_mdl_size[1]);
     for (int i = 0; i < i_mdl_size[1]; i++)
-        vl_grd_norm[i] = v_norm[1][i];
+        vl_grd_norm[i] = *(v_norm + i + i_mdl_size[0]);
 
-    for (int i = 0; i < 2; i++)
 #ifdef HAVE_CUDA
-        cudaFreeHost(v_norm[i]);
+    glb_temp_working_mem->dealocate(sizeof(cnn::real) * i_mdl_total_size);
 #else
-        free(v_norm[i]);
+    free(v_norm);
 #endif
 }
 
