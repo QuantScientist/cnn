@@ -129,7 +129,7 @@ Expression AttentionWithIntention<Builder, Decoder>::build_graph(const std::vect
 
     i_Wa = parameter(cg, p_Wa);
     i_va = parameter(cg, p_va);
-    i_U = parameter(cg, p_U);
+    i_U = parameter(cg, DialogueBuilder::p_U);
     i_Q = parameter(cg, p_Q);
 
     const unsigned oslen = osent.size() - 1;
