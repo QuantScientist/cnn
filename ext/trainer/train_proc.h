@@ -161,6 +161,15 @@ public:
     void supervised_pretrain(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
         bool bcharlevel = false, bool nosplitdialogue = false);
+
+    /// adaptation using a small adaptation
+    void online_adaptation(Model &model, Proc &am,
+        const Dialogue & training, // user_input_target_response_pair,
+        Trainer &sgd, 
+        const cnn::real& target_ppl, /// the target training ppl
+        int maxepoch,                /// the maximum number of epochs
+        const string & updated_model_fname);
+
     void train(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, int max_epochs, 
         bool bcharlevel = false, bool nosplitdialogue = false);
@@ -1730,7 +1739,63 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
 
 }
 
-/** 
+/**
+online adaptation of an existing model
+using only one sentence pair usually
+
+in contrast, offline adaptation needs a corpus 
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::online_adaptation(Model &model, AM_t &am, 
+    const Dialogue & training, // user_input_target_response_pair,
+    Trainer &sgd, const cnn::real& target_ppl,
+    int maxepoch , 
+    const string & updated_model_fname)
+{
+    cnn::real best = 9e+99;
+    PDialogue ptraining;
+    for (auto p : training)
+    {
+        PTurn pt(1);
+        pt[0] = p;
+
+        ptraining.push_back(pt);
+    }
+
+    while (best > target_ppl && sgd.epoch < maxepoch) {
+        Timer iteration("completed in");
+        training_set_scores->reset();
+
+        segmental_forward_backward(model, am, ptraining, 1, training_set_scores, false, false, &sgd);
+
+        sgd.status();
+        training_set_scores->compute_score();
+
+        cnn::real i_ppl = exp(training_set_scores->dloss / training_set_scores->twords);
+        cerr << "\n***Train epoch[" << sgd.epoch << "] E = " << (training_set_scores->dloss / training_set_scores->twords) << " ppl=" << i_ppl << ' ';
+
+        if (best > i_ppl)
+        {
+            best = i_ppl;
+        }
+        else
+        {
+            sgd.eta0 *= 0.5;
+            sgd.eta *= 0.5;
+        }
+        if (sgd.eta < 1e-10)
+        {
+            cerr << "SGD stepsize is too small to update models" << endl;
+            break;
+        }
+        sgd.update_epoch();
+    }
+
+    if (updated_model_fname.size() > 0)
+        save_cnn_model(updated_model_fname, &model);
+}
+
+/**
 since the tool loads data into memory and that can cause memory exhaustion, this function do sampling of data for each epoch.
 */
 template <class AM_t>
