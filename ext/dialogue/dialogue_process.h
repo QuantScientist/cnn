@@ -252,7 +252,8 @@ namespace cnn {
                 cout << endl;
 
             prv_response = decode_output;
-            return response; 
+
+            return response;
         }
 
         /// return levenshtein between responses and reference
