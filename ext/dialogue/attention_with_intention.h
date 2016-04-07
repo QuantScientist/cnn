@@ -38,6 +38,22 @@ namespace cnn {
 
 template <class Builder, class Decoder>
 class AttentionWithIntention : public DialogueBuilder<Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
 public:
     AttentionWithIntention(Model& model,
         unsigned vocab_size_src, unsigned vocab_size_tgt, const vector<unsigned int>& layers,
@@ -326,8 +342,8 @@ std::vector<int> AttentionWithIntention<Builder, Decoder>::sample(const std::vec
     return target;
 }
 
-template <class Builder, class Decoder>
-class GatedAttention : public AttentionWithIntention<Builder, Decoder>{
+//template <class Builder, class Decoder>
+/* class GatedAttention : public AttentionWithIntention<Builder, Decoder>{
 public:
     GatedAttention(Model& model,
     unsigned vocab_size_src, unsigned vocab_size_tgt, const vector<unsigned int>& layers,
@@ -358,9 +374,9 @@ protected:
     Expression attention_gate(Expression i_h_tm1);
     Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg) override;
 
-};
+}; */
 
-template<class Builder, class Decoder>
+/* template<class Builder, class Decoder>
 Expression GatedAttention<Builder, Decoder>::attention_gate(Expression i_h_tm1)
 {
     Expression att = logistic(i_att_gate_A * i_h_tm1 + v_att_gate_b);
@@ -400,9 +416,9 @@ Expression GatedAttention<Builder, Decoder>::decoder_step(vector<int> trg_tok, C
     Expression input = concatenate_cols(v_input);
 
     return decoder.add_input(input);
-}
+} */
 
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AWI : public AttentionWithIntention < Builder, Decoder > {
 public:
     AWI(Model& model,
@@ -979,7 +995,7 @@ public:
         v_decoder.back()->set_data_in_parallel(nutt);
         v_decoder.back()->start_new_sequence(vcxt);  /// get the intention
     }
-};
+}; */
 
 /**
 inspired from the paper
@@ -1005,7 +1021,7 @@ Decoder:
 Input feeding
 h_t = f(h_{t-1}, y_{t-1}, \tilde{h}_{t-1})
 */
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AWI_LocalGeneralInputFeeding: public AWI_Bilinear_Simpler< Builder, Decoder> {
 private:
     /// for location prediction for local attention
@@ -1330,7 +1346,7 @@ public:
 
         return i_h_attention_t;
     }
-};
+}; */
 
 /**
 inspired from the paper
@@ -1354,7 +1370,7 @@ Decoder:
 Input feeding
 h_t = f(h_{t-1}, y_{t-1}, \tilde{h}_{t-1})
 */
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AWI_GeneralInputFeeding : public AWI_Bilinear_Simpler< Builder, Decoder> {
 protected:
     /// for the expoential scaling of the softmax
@@ -1656,7 +1672,7 @@ public:
 
         return i_h_attention_t;
     }
-};
+}; */
 
 /**
 inspired from the paper
@@ -1680,7 +1696,7 @@ Decoder:
 Input feeding
 h_t = f(h_{t-1}, y_{t-1}, \tilde{h}_{t-1})
 */
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AWI_GeneralInputFeedingWDropout : public AWI_GeneralInputFeeding< Builder, Decoder> {
 protected:
     /// dropout rate
@@ -1853,7 +1869,7 @@ public:
         return i_h_attention_t;
     }
 };
-
+ */
 /**
 inspired from the paper
 
@@ -1868,7 +1884,7 @@ Decoder:
 Input feeding
 h_t = f(h_{t-1}, y_{t-1}, \tilde{h}_{t-1})
 */
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AWI_InputFeedingWithNNAttention: public AWI_GeneralInputFeedingWDropout< Builder, Decoder> {
 protected:
     // a single layer MLP
@@ -1991,7 +2007,7 @@ public:
     }
 
     /** use a nn to extraction attention
-    */
+    
     vector<Expression> attention_to_source_using_nn(vector<Expression> & v_src, const vector<unsigned>& v_slen, 
         Expression i_h_tm1, unsigned int a_dim, unsigned int nutt, vector<Expression>& v_wgt, Expression fscale)
     {
@@ -2101,13 +2117,13 @@ public:
 
         return i_h_attention_t;
     }
-};
+}; */
 
 /**
 No attention for comparison
 use hirearchical process, with an intention network, encoder network and decoder network. however, no attention to encoder output is used when computing decoder network. this is just for comparison to AWI_Bilinear_Simpler, as this simplified model is not the right model to pursue.
 */
-template<class Builder, class Decoder>
+/* template<class Builder, class Decoder>
 class HirearchicalEncDec : public AWI_Bilinear_Simpler< Builder, Decoder > {
 public:
     HirearchicalEncDec(Model& model,
@@ -2333,7 +2349,7 @@ public:
         turnid++;
         return errs;
     };
-};
+}; */
 
 /*
 #define RL_ERROR_WEIGHT 1e-3
@@ -2731,7 +2747,7 @@ protected:
 
 */
 
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class DynamicMemoryNetDialogue {
 private:
     vector<Expression> query_obs;  /// the observed context/query
@@ -3161,7 +3177,7 @@ public:
         fact_encoder_state.clear();
     }
 
-};
+}; */
 
 /**
 use simple models 
@@ -3175,6 +3191,45 @@ or can be simpler such as bilinear model
 */
 template <class Builder, class Decoder>
 class MultiSource_LinearEncoder : public DialogueBuilder<Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using DialogueBuilder<Builder, Decoder>::combiner;
+		
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	
 protected:
     /// time-dependent embedding weight
     map<size_t, map<size_t, tExpression>> m_time_embedding_weight;
@@ -3725,6 +3780,50 @@ public:
 */
 template <class Builder, class Decoder>
 class AttMultiSource_LinearEncoder : public MultiSource_LinearEncoder <Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using DialogueBuilder<Builder, Decoder>::combiner;
+		
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	using DialogueBuilder<Builder, Decoder>::i_cxt_to_decoder;
+	using DialogueBuilder<Builder, Decoder>::p_cxt_to_decoder;
+	using DialogueBuilder<Builder, Decoder>::i_enc_to_intention;
+	using DialogueBuilder<Builder, Decoder>::p_enc_to_intention;
+	
+	
 protected:
     /// for location prediction for local attention
     Parameters* p_va_local, *p_Wa_local, *p_ba_local;
@@ -4184,6 +4283,58 @@ Use attentional max-entropy features or direct features
 */
 template <class Builder, class Decoder>
 class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource_LinearEncoder <Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using MultiSource_LinearEncoder<Builder, Decoder>::combiner;
+		
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	using DialogueBuilder<Builder, Decoder>::i_cxt_to_decoder;
+	using DialogueBuilder<Builder, Decoder>::p_cxt_to_decoder;
+	using DialogueBuilder<Builder, Decoder>::i_enc_to_intention;
+	using DialogueBuilder<Builder, Decoder>::p_enc_to_intention;
+	
+	using DialogueBuilder<Builder, Decoder>::i_Wa;
+	using DialogueBuilder<Builder, Decoder>::p_Wa;
+	using DialogueBuilder<Builder, Decoder>::i_va;
+	using DialogueBuilder<Builder, Decoder>::p_va;
+	using DialogueBuilder<Builder, Decoder>::attention_layer;
+	using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
+	using DialogueBuilder<Builder, Decoder>::i_zero;
+	using DialogueBuilder<Builder, Decoder>::attention_output_for_this_turn;
+	
 protected:
     cnn::real r_softmax_scale; /// for attention softmax exponential scale
     LookupParameters* p_max_ent; /// weight for max-entropy feature
@@ -4626,7 +4777,7 @@ public:
 /**
 Use attentional max-entropy features or direct features
 */
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AttMultiSource_LinearEncoder_WithHashingMaxEntropyFeature : public AttMultiSource_LinearEncoder <Builder, Decoder>{
 protected:
     cnn::real r_softmax_scale; /// for attention softmax exponential scale
@@ -5074,12 +5225,12 @@ public:
         return target;
     }
 };
-
+ */
 /**
 Use global max-entropy and attentional direct features
 To speed-up, each source has been padded with </s> to have equal length of source sentences
 */
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class AttMultiSource_LinearEncoder_WithMaxEntropyFeature_AndGlobalDirectFeature_Batch : public AttMultiSource_LinearEncoder_WithMaxEntropyFeature<Builder, Decoder>{
 protected:
     LookupParameters* p_tgt_side_emb;  /// target side embedding
@@ -5495,9 +5646,9 @@ public:
         return target;
     }
 
-};
+}; */
 
-template <class Builder, class Decoder>
+/* template <class Builder, class Decoder>
 class ClsBasedMultiSource_LinearEncoder : public MultiSource_LinearEncoder <Builder, Decoder>{
 protected:
     ClsBasedBuilder* p_clsbased_error;
@@ -5859,7 +6010,7 @@ public:
         return target;
     }
 
-};
+}; */
 
 
 }; // namespace cnn

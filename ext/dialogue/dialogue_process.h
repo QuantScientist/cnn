@@ -26,6 +26,34 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/range/irange.hpp>
 
+extern unsigned LAYERS;
+extern unsigned HIDDEN_DIM;  // 1024
+extern unsigned ALIGN_DIM;  // 1024
+extern unsigned VOCAB_SIZE_SRC;
+extern unsigned VOCAB_SIZE_TGT;
+extern long nparallel;
+extern long mbsize;
+extern size_t g_train_on_turns; 
+
+extern cnn::Dict sd;
+extern cnn::Dict td;
+extern cnn::stId2String<string> id2str;
+
+extern int kSRC_SOS;
+extern int kSRC_EOS;
+extern int kTGT_SOS;
+extern int kTGT_EOS;
+extern int verbose;
+extern int beam_search_decode;
+extern cnn::real lambda;
+extern int repnumber;
+
+extern Sentence prv_response;
+
+extern NumTurn2DialogId training_numturn2did;
+extern NumTurn2DialogId devel_numturn2did;
+extern NumTurn2DialogId test_numturn2did;
+
 using namespace std;
 
 namespace cnn {
@@ -378,6 +406,11 @@ namespace cnn {
     */
     template <class DBuilder>
     class HREDModel : public DialogueProcessInfo<DBuilder>{
+	public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
     private:
         vector<Expression> i_errs; 
     public:
@@ -494,6 +527,11 @@ namespace cnn {
     */
     template <class DBuilder>
     class DialogueSeq2SeqModel : public DialogueProcessInfo<DBuilder> {
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;
     private:
         vector<Expression> i_errs;
 
@@ -683,6 +721,11 @@ namespace cnn {
     template <class DBuilder>
     class AttentionWithIntentionModel : public DialogueProcessInfo<DBuilder>{
         size_t align_dim;
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
     public:
         explicit AttentionWithIntentionModel(cnn::Model& model,
             const vector<unsigned int>& layers,
@@ -871,6 +914,11 @@ namespace cnn {
     template <class DBuilder>
     class AttentionalConversation: public DialogueProcessInfo<DBuilder>{
         size_t align_dim;
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
     public:
         explicit AttentionalConversation(cnn::Model& model,
             const vector<unsigned int>& layers,
@@ -1058,6 +1106,11 @@ namespace cnn {
 
     template <class DBuilder>
     class MultiSourceDialogue: public DialogueProcessInfo<DBuilder>{
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
     public:
         explicit MultiSourceDialogue(cnn::Model& model,
             const vector<unsigned int>& layers,
@@ -1183,6 +1236,11 @@ namespace cnn {
 
     template <class DBuilder>
     class ClassificationBasedMultiSourceDialogue : public DialogueProcessInfo<DBuilder>{
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
     public:
         explicit ClassificationBasedMultiSourceDialogue(cnn::Model& model,
             const vector<unsigned int>& layers,
