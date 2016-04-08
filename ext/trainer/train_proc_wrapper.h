@@ -175,11 +175,6 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         }
     }
 
-    if (vm.count("train-lda") > 0)
-    {
-        ptrTrainer->lda_train(vm, training, devel, sd);
-    }
-
     string fname;
     if (vm.count("parameters")) {
         fname = vm["parameters"].as<string>();
@@ -240,15 +235,6 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
 
     ptrTrainer = new TrainProc();
 
-    if (vm["pretrain"].as<cnn::real>() > 0)
-    {
-        ptrTrainer->supervised_pretrain(model, hred, training, devel, *sgd, fname, vm["pretrain"].as<cnn::real>(), 1);
-        delete sgd;
-
-        /// reopen sgd
-        sgd = select_trainer<rnn_t, TrainProc>(vm, &model);
-    }
-
     if (vm.count("sampleresponses"))
     {
         cerr << "Reading sample corpus from " << vm["sampleresponses"].as<string>() << "...\n";
@@ -269,7 +255,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         // this is not efficient implementation, better way is to share model parameters
         int n_reinforce_train = vm["num_reinforce_train"].as<int>();
         cnn::real largest_cost = 9e+99;
-        ptrTrainer->reset_smoothed_ppl();
+        reset_smoothed_ppl(ptrTrainer->ppl_hist);
         for (size_t k_reinforce = 0; k_reinforce <= n_reinforce_train; k_reinforce++)
         {
             Model model_mirrow;
@@ -310,10 +296,6 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
         ptrTrainer->batch_train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), largest_dev_cost, vm["segmental_training"].as<bool>(), true, vm["do_gradient_check"].as<bool>(), true, vm["padding"].as<bool>(), kSRC_EOS);
-    }
-    else if (!vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
-    {
-        ptrTrainer->train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm.count("charlevel") > 0, vm.count("nosplitdialogue"));
     }
     else if (vm.count("testcorpus"))
     {
@@ -664,29 +646,6 @@ int clustering_main_body(variables_map vm)
         test_numturn2did = get_numturn2dialid(testcorpus);
     }
 
-    if (vm.count("train-lda") > 0)
-    {
-        ptrTrainer->lda_train(vm, training, devel, sd);
-    }
-
-    if (vm.count("test-lda") > 0)
-    {
-        ptrTrainer->lda_test(vm, devel, sd);
-    }
-
-    if (vm.count("ngram-training") > 0)
-    {
-        ptrTrainer->ngram_train(vm, training, sd);
-    }
-
-    if (vm.count("ngram-clustering") > 0)
-    {
-        ptrTrainer->ngram_clustering(vm, training, sd);
-    }
-
-    if (vm.count("ngram_one_pass_clustering") > 0)
-        ptrTrainer->ngram_one_pass_clustering(vm, training, sd);
-
     delete ptrTrainer;
 
     return EXIT_SUCCESS;
@@ -732,13 +691,6 @@ int hirearchical_clustering_main_body(variables_map vm)
     }
     else{
         throw std::invalid_argument("must have either training corpus or dictionary");
-    }
-
-    if (vm.count("hierarchical_ngram_clustering") > 0)
-    {
-        CorpusWithClassId training = read_corpus_with_classid(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS);
-
-        ptrTrainer->hierarchical_ngram_clustering(vm, training, sd);
     }
 
     if (vm.count("extract_id_and_string") > 0)

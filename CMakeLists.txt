@@ -8,8 +8,9 @@ if(WIN64 OR WIN32)
 set(BOOST_ROOT C:/local/boost_1_59_0)
 set(BOOST_LIBRARYDIR C:/local/boost_1_59_0/lib64-msvc-12.0)
 else()
-set(BOOST_ROOT /cygdrive/d/tools/boost_1_59_0/boost_1_59_0)
+set(BOOST_ROOT /home/kaisheng/tools/boost_1_59_0)
 set(BOOST_LIBRARYDIR /usr/local/lib)
+set(BOOST_INCLUDEDIR /usr/local/include/boost)
 endif()
 
 # best possible performance, the following are recommended:

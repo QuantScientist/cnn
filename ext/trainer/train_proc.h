@@ -13,10 +13,9 @@
 #include "cnn/expr.h"
 #include "cnn/cnn-helper.h"
 #include "ext/dialogue/attention_with_intention.h"
-#include "ext/lda/lda.h"
-#include "ext/ngram/ngram.h"
 #include "cnn/data-util.h"
 #include "cnn/grad-check.h"
+#include "cnn/metric-util.h"
 
 #include <iostream>
 #include <fstream>
@@ -84,6 +83,9 @@ Sentence prv_response;
 NumTurn2DialogId training_numturn2did;
 NumTurn2DialogId devel_numturn2did;
 NumTurn2DialogId test_numturn2did;
+
+void reset_smoothed_ppl(vector<cnn::real>& ppl_hist);
+cnn::real smoothed_ppl(cnn::real curPPL, vector<cnn::real>& ppl_hist);
 
 #define MAX_NBR_TRUNS 200000
 struct TrainingScores{
@@ -155,13 +157,6 @@ public:
         bool doGradientCheck, bool b_inside_logic, 
         bool do_padding, int kEOS  /// do padding. if so, use kEOS as the padding symbol
         );
-    void supervised_pretrain(Model &model, Proc &am, Corpus &training, Corpus &devel,
-        Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
-        bool bcharlevel = false, bool nosplitdialogue = false);
-    void train(Model &model, Proc &am, Corpus &training, Corpus &devel,
-        Trainer &sgd, string out_file, int max_epochs, 
-        bool bcharlevel = false, bool nosplitdialogue = false);
-    void train(Model &model, Proc &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs);
     void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
     void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding);
     
@@ -189,47 +184,7 @@ public:
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
 
-    cnn::real smoothed_ppl(cnn::real curPPL);
-    void reset_smoothed_ppl(){
-        ppl_hist.clear();
-    }
-
 public:
-    /// for LDA
-    void lda_train(variables_map vm, const Corpus &training, const Corpus &test, Dict& sd);
-    void lda_test(variables_map vm, const Corpus& test, Dict& sd);
-
-public:
-    /// for ngram
-    void ngram_train(variables_map vm, const Corpus& test, Dict& sd);
-    void ngram_clustering(variables_map vm, const Corpus& test, Dict& sd);
-    void ngram_one_pass_clustering(variables_map vm, const Corpus& test, Dict& sd);
-    void representative_presentation(
-        vector<nGram> pnGram,
-        const Sentences& responses,
-        Dict& sd,
-        vector<int>& i_data_to_cls,
-        vector<string>& i_representative, cnn::real interpolation_wgt);
-    void hierarchical_ngram_clustering(variables_map vm, const CorpusWithClassId& test, Dict& sd);
-    int closest_class_id(vector<nGram>& pnGram, int this_cls, int nclsInEachCluster, const Sentence& obs, cnn::real& score, cnn::real interpolation_wgt);
-
-public:
-    /// compute tfidf weight for all words from training data
-    /// dictionary or word list is given 
-    /// TF : Term Frequency, which measures how frequently a term occurs in a document.Since every document is different in length, it is possible that a term would appear much more times in long documents than shorter ones.Thus, the term frequency is often divided by the document length(aka.the total number of terms in the document) as a way of normalization :
-    /// TF(t, d) = (Number of times term t appears in a document d) / (Total number of terms in the document).
-    /// IDF : Inverse Document Frequency, which measures how important a term is.While computing TF, all terms are considered equally important.However it is known that certain terms, such as "is", "of", and "that", may appear a lot of times but have little importance.Thus we need to weigh down the frequent terms while scale up the rare ones, by computing the following :
-    /// IDF(t) = log_e(Total number of documents / Number of documents with term t in it).
-    
-    /// compute idf from training corpus, 
-    /// exact tfidf score of a term needs to be computed given a sentence
-    void get_idf(variables_map vm, const Corpus &training, Dict& sd);
-protected:
-//    std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
-    std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
-    /// follwong the same inddex from a dictionary
-
-private:
     vector<cnn::real> ppl_hist;
 
 };
@@ -242,13 +197,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     bool segmental_training, const string& score_embedding_fn)
 {
     unsigned lines = 0;
-    cnn::real dloss = 0;
-    cnn::real dchars_s  = 0;
-    cnn::real dchars_t = 0;
 
     ofstream of(out_file);
-
-    unsigned si = devel.size(); /// number of dialgoues in training
 
     Timer iteration("completed in");
 
@@ -295,26 +245,6 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     dev_set_scores->compute_score();
     cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
     of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
-
-    /// if report score in embedding space
-    if (score_embedding_fn.size() > 0)
-    {
-        EvaluateProcess<AM_t> * ptr_evaluate = new EvaluateProcess<AM_t>();
-        ptr_evaluate->readEmbedding(score_embedding_fn, td);
-
-        cnn::real emb_loss = 0;
-        cnn::real emb_chars_s = 0;
-        cnn::real emb_chars_t = 0;
-        cnn::real turns = 0;
-        for (auto & diag : devel)
-        {
-            turns += ptr_evaluate->scoreInEmbeddingSpace(am, diag, td, emb_loss, emb_chars_s, emb_chars_t);
-        }
-        cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] word embedding loss = " << (emb_loss / turns) << " ppl=" << exp(emb_loss / turns) << ' ';
-        of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] word embedding loss = " << (emb_loss / turns) << " ppl=" << exp(emb_loss / turns) << endl;
-
-        delete ptr_evaluate;
-    }
 
     of.close();
 }
@@ -371,23 +301,12 @@ cnn::real TrainProcess<AM_t>::testPPL(Model &model, AM_t &am, Corpus &devel, Num
 template <class AM_t>
 void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
 {
-    unsigned lines = 0;
-    cnn::real dloss = 0;
-    cnn::real dchars_s = 0;
-    cnn::real dchars_t = 0;
-
     BleuMetric bleuScore;
     bleuScore.Initialize();
 
     ofstream of(out_file);
 
-    unsigned si = devel.size(); /// number of dialgoues in training
-
     Timer iteration("completed in");
-    cnn::real ddloss = 0;
-    cnn::real ddchars_s = 0;
-    cnn::real ddchars_t = 0;
-
 
     for (auto diag : devel){
 
@@ -618,7 +537,6 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
 {
     string shuman;
     ofstream of(out_file);
-    unsigned lines = 0;
 
     int d_idx = 0;
     while (1){
@@ -756,7 +674,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
             }
 
             size_t k = 0;
-            for (auto &p : res)
+            for (auto &q : res)
             {
 
                 sref.clear();
@@ -769,7 +687,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 
                 srec.clear();
                 if (verbose) cout << "res response: ";
-                for (auto p : res[k]){
+                for (auto p : q){
                     if (verbose) cout << sd.Convert(p) << " ";
                     srec.push_back(sd.Convert(p));
                 }
@@ -845,7 +763,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 }
 
 template <class AM_t>
-void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr)
+void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores* scores, bool resetmodel, int init_turn_id, Trainer* sgd)
 {
     size_t turn_id = init_turn_id;
     size_t i_turns = 0;
@@ -970,7 +888,6 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     ofstream out(out_file, ofstream::out);
     boost::archive::text_oarchive oa(out);
@@ -986,7 +903,6 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
         cnn::real dloss = 0;
         cnn::real dchars_s = 0;
         cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
 
         for (unsigned iter = 0; iter < report_every_i;) {
 
@@ -1045,7 +961,7 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
                 id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, devel_numturn2did);
                 ndutt = id_sel_idx.size();
             }
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < largest_cost) {
                 largest_cost = ddloss;
                 ofstream out(out_file, ofstream::out);
@@ -1086,10 +1002,9 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     if (b_inside_logic) 
-        reset_smoothed_ppl();
+        reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1134,7 +1049,6 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             }
 
             Dialogue prv_turn;
-            size_t turn_id = 0;
             vector<int> i_sel_idx = get_same_length_dialogues(training, nparallel, i_stt_diag_id, v_selected, v_dialogues, training_numturn2did);
             size_t nutt = i_sel_idx.size();
             if (nutt == 0)
@@ -1193,7 +1107,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 
             ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
 
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
                 ofstream out(out_file, ofstream::out);
@@ -1226,328 +1140,6 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 }
 
 /**
-@bcharlevel : true if character output; default false.
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus &devel,
-    Trainer &sgd, string out_file, int max_epochs, bool bcharlevel = false, bool nosplitdialogue = false)
-{
-    cnn::real best = 9e+99;
-    unsigned report_every_i = 50;
-    unsigned dev_every_i_reports = 1000;
-    unsigned si = training.size(); /// number of dialgoues in training
-    boost::mt19937 rng;                 // produces randomness out of thin air
-
-    vector<unsigned> order(training.size());
-    for (unsigned i = 0; i < order.size(); ++i) order[i] = i;
-
-    bool first = true;
-    int report = 0;
-    unsigned lines = 0;
-    int epoch = 0;
-
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
-
-    reset_smoothed_ppl();
-
-    int prv_epoch = -1;
-    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
-    size_t i_stt_diag_id = 0;
-
-    while (sgd.epoch < max_epochs) {
-        Timer iteration("completed in");
-        training_set_scores->reset(); 
-        dev_set_scores->reset();
-        cnn::real dloss = 0;
-        cnn::real dchars_s = 0;
-        cnn::real dchars_t = 0;
-
-        for (unsigned iter = 0; iter < report_every_i; ++iter) {
-
-            if (si == training.size()) {
-                si = 0;
-                if (first) { first = false; }
-                else { sgd.update_epoch(); }
-            }
-
-            if (si % order.size() == 0) {
-                cerr << "**SHUFFLE\n";
-                shuffle(order.begin(), order.end(), *rndeng);
-                i_stt_diag_id = 0;
-                v_selected = vector<bool>(training.size(), false);
-            }
-
-            // build graph for this instance
-            auto& spair = training[order[si % order.size()]];
-
-            if (verbose)
-                cerr << "diag = " << order[si % order.size()] << endl;
-
-            /// find portion to train
-            bool b_trained = false;
-            // see random number distributions
-            auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
-            int i_turn_to_train = rng();
-            if (nosplitdialogue)
-                i_turn_to_train = 99999;
-
-            vector<SentencePair> prv_turn;
-            size_t turn_id = 0;
-            
-            size_t i_init_turn = 0;
-
-            /// train on two segments of a dialogue
-            do{
-                ComputationGraph cg;
-
-                if (i_init_turn > 0)
-                    am.assign_cxt(cg, 1);
-                for (size_t t = i_init_turn; t <= std::min(i_init_turn + i_turn_to_train, spair.size()-1); t++)
-                {
-                    SentencePair turn = spair[t];
-                    vector<SentencePair> i_turn(1, turn);
-                    if (turn_id == 0)
-                    {
-                        am.build_graph(i_turn, cg);
-                    }
-                    else
-                    {
-                        am.build_graph(prv_turn, i_turn, cg);
-                    }
-                    cg.incremental_forward();
-                    turn_id++;
-
-                    if (verbose)
-                    {
-                        display_value(am.s2txent, cg);
-                        cnn::real tcxtent = as_scalar(cg.get_value(am.s2txent));
-                        cerr << "xent = " << tcxtent << " nobs = " << am.twords << " PPL = " << exp(tcxtent / am.twords) << endl;
-                    }
-
-                    prv_turn = i_turn;
-                    if (t == i_init_turn + i_turn_to_train || (t == spair.size() - 1)){
-
-                        dloss += as_scalar(cg.get_value(am.s2txent.i));
-
-                        dchars_s += am.swords;
-                        dchars_t += am.twords;
-
-                        cg.backward();
-                        sgd.update(am.twords);
-
-                        am.serialise_cxt(cg);
-                        i_init_turn = t + 1;
-                        i_turn_to_train = spair.size() - i_init_turn;
-                        break;
-                    }
-                }
-            } while (i_init_turn < spair.size());
-
-            if (iter == report_every_i - 1)
-                am.respond(spair, sd, bcharlevel);
-
-            ++si;
-            lines++;
-        }
-        sgd.status();
-        cerr << "\n***Train [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (dloss / dchars_t) << " ppl=" << exp(dloss / dchars_t) << ' ';
-
-
-        // show score on dev data?
-        report++;
-        if (floor(sgd.epoch) != prv_epoch || report % dev_every_i_reports == 0 || fmod(lines, (cnn::real)training.size()) == 0.0) {
-            dev_set_scores->reset();
-
-            {
-                vector<bool> vd_selected(devel.size(), false);  /// track if a dialgoue is used
-                size_t id_stt_diag_id = 0;
-                PDialogue vd_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
-                vector<int> id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, devel_numturn2did);
-                size_t ndutt = id_sel_idx.size();
-
-                if (verbose)
-                {
-                    cerr << "selected " << ndutt << " :  ";
-                    for (auto p : id_sel_idx)
-                        cerr << p << " ";
-                    cerr << endl;
-                }
-
-                while (ndutt > 0)
-                {
-                    nosegmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, true);
-
-                    id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, devel_numturn2did);
-                    ndutt = id_sel_idx.size();
-
-                    if (verbose)
-                    {
-                        cerr << "selected " << ndutt << " :  ";
-                        for (auto p : id_sel_idx)
-                            cerr << p << " ";
-                        cerr << endl;
-                    }
-                }
-            }
-
-            dev_set_scores->compute_score();
-            cnn::real ddloss = smoothed_ppl(dev_set_scores->dloss);
-            if (ddloss < best) {
-                best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
-            }
-            else{
-                sgd.eta0 *= 0.5; /// reduce learning rate
-                sgd.eta *= 0.5; /// reduce learning rate
-            }
-            cerr << "\n***DEV [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
-        }
-
-        prv_epoch = floor(sgd.epoch);
-    }
-}
-
-/**
-Training process on tuple corpus
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs)
-{
-    cnn::real best = 9e+99;
-    unsigned report_every_i = 50;
-    unsigned dev_every_i_reports = 1000;
-    unsigned si = training.size(); /// number of dialgoues in training
-    boost::mt19937 rng;                 // produces randomness out of thin air
-
-    vector<unsigned> order(training.size());
-    for (unsigned i = 0; i < order.size(); ++i) order[i] = i;
-
-    bool first = true;
-    int report = 0;
-    unsigned lines = 0;
-    int epoch = 0;
-
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
-
-    reset_smoothed_ppl();
-
-    int prv_epoch = -1;
-    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
-    size_t i_stt_diag_id = 0;
-
-    while (sgd.epoch < max_epochs) {
-        Timer iteration("completed in");
-        cnn::real dloss = 0;
-        cnn::real dchars_s = 0;
-        cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
-
-        for (unsigned iter = 0; iter < report_every_i; ++iter) {
-
-            if (si == training.size()) {
-                si = 0;
-                if (first) { first = false; }
-                else { sgd.update_epoch(); }
-            }
-
-            if (si % order.size() == 0) {
-                cerr << "**SHUFFLE\n";
-                shuffle(order.begin(), order.end(), *rndeng);
-                i_stt_diag_id = 0;
-                v_selected = vector<bool>(training.size(), false);
-            }
-
-            // build graph for this instance
-            auto& spair = training[order[si % order.size()]];
-
-            if (verbose)
-                cerr << "diag = " << order[si % order.size()] << endl;
-
-            /// find portion to train
-            bool b_trained = false;
-            // see random number distributions
-            auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
-            int i_turn_to_train = rng();
-
-            vector<SentenceTuple> prv_turn;
-            size_t turn_id = 0;
-
-            size_t i_init_turn = 0;
-
-            /// train on two segments of a dialogue
-            ComputationGraph cg;
-            size_t t = 0;
-            do{
-                if (i_init_turn > 0)
-                    am.assign_cxt(cg, 1);
-
-                SentenceTuple turn = spair[t];
-                vector<SentenceTuple> i_turn(1, turn);
-                if (turn_id == 0)
-                {
-                    am.build_graph(i_turn, cg);
-                }
-                else
-                {
-                    am.build_graph(prv_turn, i_turn, cg);
-                }
-
-                cg.incremental_forward();
-                turn_id++;
-
-                t++;
-                prv_turn = i_turn;
-            } while (t < spair.size());
-
-            dloss += as_scalar(cg.get_value(am.s2txent.i));
-
-            dchars_s += am.swords;
-            dchars_t += am.twords;
-
-            //            CheckGrad(model, cg);
-            cg.backward();
-            sgd.update(am.twords);
-
-            if (verbose)
-                cerr << "\n***Train [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (dloss / dchars_t) << " ppl=" << exp(dloss / dchars_t) << ' ';
-            ++si;
-            lines++;
-        }
-        sgd.status();
-        cerr << "\n***Train [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (dloss / dchars_t) << " ppl=" << exp(dloss / dchars_t) << ' ';
-
-        if (fmod(lines , (cnn::real)training.size()) == 0)
-        {
-            cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t));
-            if (best > i_ppl)
-            {
-                best = i_ppl;
-
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
-            }
-            else
-            {
-                sgd.eta0 *= 0.5;
-                sgd.eta *= 0.5;
-            }
-        }
-        prv_epoch = floor(sgd.epoch);
-    }
-}
-
-/**
 collect sample responses
 */
 template <class AM_t>
@@ -1556,203 +1148,12 @@ void TrainProcess<AM_t>::collect_sample_responses(AM_t& am, Corpus &training)
     am.clear_candidates();
     for (auto & ds: training){
         vector<SentencePair> prv_turn;
-        size_t turn_id = 0;
 
         for (auto& spair : ds){
             SentencePair turn = spair;
             am.collect_candidates(spair.second);
         }
     }
-}
-
-/// smooth PPL on three points with 0.9 forgetting factor
-template<class AM_t>
-cnn::real TrainProcess<AM_t>::smoothed_ppl(cnn::real curPPL)
-{
-    if (ppl_hist.size() == 0)
-        ppl_hist.resize(3, curPPL);
-    ppl_hist.push_back(curPPL);
-    if (ppl_hist.size() > 3)
-        ppl_hist.erase(ppl_hist.begin());
-
-    cnn::real finPPL = 0;
-    size_t k = 0;
-    for (auto p : ppl_hist)
-    {
-        finPPL += p;
-        k++;
-    }
-    return finPPL/k;
-}
-
-/**
-overly pre-train models on small subset of the data 
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &training, Corpus &devel,
-    Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
-    bool bcharlevel = false, bool nosplitdialogue = false)
-{
-    cnn::real best = 9e+99;
-    unsigned report_every_i = 50;
-    unsigned dev_every_i_reports = 1000;
-    unsigned si = training.size(); /// number of dialgoues in training
-    boost::mt19937 rng;                 // produces randomness out of thin air
-
-    reset_smoothed_ppl();
-
-    size_t sample_step = 100;
-    size_t maxepoch = sample_step * 10; /// no point of using more than 100 epochs, which correspond to use full data with 10 epochs for pre-train
-    vector<unsigned> order(training.size()/sample_step);
-    size_t k = 0;
-    for (unsigned i = 0; i < training.size(); i += sample_step)
-    {
-        if (k < order.size())
-            order[k++] = i;
-        else
-            break;
-    }
-
-    bool first = true;
-    int report = 0;
-    unsigned lines = 0;
-    int epoch = 0;
-
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
-
-    int prv_epoch = -1;
-    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
-    size_t i_stt_diag_id = 0;
-
-    while (best > target_ppl && sgd.epoch < maxepoch) {
-        Timer iteration("completed in");
-        cnn::real dloss = 0;
-        cnn::real dchars_s = 0;
-        cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
-
-        for (unsigned iter = 0; iter < report_every_i; ++iter) {
-
-            if (si == training.size()) {
-                si = 0;
-                if (first) { first = false; }
-                else { sgd.update_epoch(); }
-            }
-
-            if (si % order.size() == 0) {
-                cerr << "**SHUFFLE\n";
-                shuffle(order.begin(), order.end(), *rndeng);
-                i_stt_diag_id = 0;
-                v_selected = vector<bool>(order.size(), false);
-            }
-
-            // build graph for this instance
-            auto& spair = training[order[si % order.size()] + min_diag_id];
-
-            if (verbose)
-                cerr << "diag = " << order[si % order.size()] + min_diag_id << endl;
-
-            /// find portion to train
-            bool b_trained = false;
-            // see random number distributions
-            auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
-            int i_turn_to_train = rng();
-            if (nosplitdialogue)
-                i_turn_to_train = 99999;
-
-            vector<SentencePair> prv_turn;
-            size_t turn_id = 0;
-
-            size_t i_init_turn = 0;
-
-            /// train on two segments of a dialogue
-            do{
-                ComputationGraph cg;
-
-                if (i_init_turn > 0)
-                    am.assign_cxt(cg, 1);
-                for (size_t t = i_init_turn; t <= std::min(i_init_turn + i_turn_to_train, spair.size() - 1); t++)
-                {
-                    SentencePair turn = spair[t];
-                    vector<SentencePair> i_turn(1, turn);
-                    if (turn_id == 0)
-                    {
-                        am.build_graph(i_turn, cg);
-                    }
-                    else
-                    {
-                        am.build_graph(prv_turn, i_turn, cg);
-                    }
-                    cg.incremental_forward();
-                    turn_id++;
-
-                    if (verbose)
-                    {
-                        display_value(am.s2txent, cg);
-                        cnn::real tcxtent = as_scalar(cg.get_value(am.s2txent));
-                        cerr << "xent = " << tcxtent << " nobs = " << am.twords << " PPL = " << exp(tcxtent / am.twords) << endl;
-                    }
-
-                    prv_turn = i_turn;
-                    if (t == i_init_turn + i_turn_to_train || (t == spair.size() - 1)){
-
-                        dloss += as_scalar(cg.get_value(am.s2txent.i));
-
-                        dchars_s += am.swords;
-                        dchars_t += am.twords;
-
-                        cg.backward();
-                        sgd.update(am.twords);
-
-                        am.serialise_cxt(cg);
-                        i_init_turn = t + 1;
-                        i_turn_to_train = spair.size() - i_init_turn;
-                        break;
-                    }
-                }
-            } while (i_init_turn < spair.size());
-
-            if (iter == report_every_i - 1)
-                am.respond(spair, sd, bcharlevel);
-
-            ++si;
-            lines++;
-        }
-        sgd.status();
-        cerr << "\n***Train [epoch=" << (lines / (cnn::real)order.size()) << "] E = " << (dloss / dchars_t) << " ppl=" << exp(dloss / dchars_t) << ' ';
-
-        prv_epoch = floor(sgd.epoch);
-
-        cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t));
-        if (best > i_ppl)
-        {
-            best = i_ppl;
-        }
-        else
-        {
-            sgd.eta0 *= 0.5;
-            sgd.eta *= 0.5;
-        }
-        if (sgd.eta < 1e-10)
-        {
-            cerr << "SGD stepsize is too small to update models" << endl;
-            break;
-        }
-    }
-
-    ofstream out2(out_file, ofstream::out);
-    boost::archive::text_oarchive oa2(out2);
-    oa2 << model;
-    out2.close();
-
-    ofstream out3(out_file + ".pretrained", ofstream::out);
-    boost::archive::text_oarchive oa3(out3);
-    oa3 << model;
-    out3.close();
-
 }
 
 /** 
@@ -1767,7 +1168,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     cnn::real largest_cost = 9e+99;
     cnn::real largest_dev_cost = 9e+99;
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     DataReader dr(train_filename);
     int trial = 0;
@@ -1812,7 +1213,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
                 cnn::real ddloss, ddchars_s, ddchars_t;
                 ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
 
-                ddloss = smoothed_ppl(ddloss);
+                ddloss = smoothed_ppl(ddloss, ppl_hist);
                 if (ddloss < largest_dev_cost) {
                     /// save the model with the best performance on the dev set
                     largest_dev_cost = ddloss;
@@ -1834,616 +1235,6 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     }
 }
 
-template <class AM_t>
-void TrainProcess<AM_t>::get_idf(variables_map vm, const Corpus &training, Dict& sd)
-{
-    long l_total_terms = 0;
-    long l_total_nb_documents = 0;
-    tWordid2TfIdf idf;
-
-    for (auto & d : training)
-    {
-        for (auto &sp : d)
-        {
-            Sentence user = sp.first;
-            Sentence resp = sp.second;
-
-            l_total_terms += user.size();
-            l_total_terms += resp.size();
-
-            l_total_nb_documents += 2;
-
-            tWordid2TfIdf occurence; 
-            for (auto& u : user)
-            {
-                occurence[u] = 1;
-            }
-            for (auto& u : resp)
-            {
-                occurence[u] = 1;
-            }
-
-            tWordid2TfIdf::iterator iter;
-            for (iter = occurence.begin(); iter != occurence.end(); iter++)
-                idf[iter->first] += 1;
-        }
-    }
-
-    tWordid2TfIdf::iterator it;
-    for (it = idf.begin(); it != idf.end(); it++)
-    {
-        cnn::real idf_val = it->second;
-        idf_val = log(l_total_nb_documents / idf_val);
-
-        int id = it->first; 
-        cnn::real idfscore = idf_val;
-        m_map_idf[sd.Convert(id)] = idfscore;
-    }
-
-    string fname = vm["get_tfidf"].as<string>();
-    ofstream on(fname);
-    boost::archive::text_oarchive oa(on);
-    oa << m_map_idf;
-
-}
-
-/**
-@bcharlevel : true if character output; default false.
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::lda_train(variables_map vm, const Corpus &training, const Corpus& test, Dict& sd)
-{
-    ldaModel * pLda = new ldaModel(training, test);
-
-    pLda->init(vm);
-
-    pLda->read_data(training, sd, test);
-
-    pLda->train();
-    pLda->save_ldaModel_topWords(vm["lda-model"].as<string>() + ".topic.words", sd);
-
-    pLda->load_ldaModel(-1);
-    pLda->test(sd);
-
-    delete[] pLda;
-}
-
-/**
-@bcharlevel : true if character output; default false.
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::lda_test(variables_map vm, const Corpus& test, Dict& sd)
-{
-    Corpus empty;
-    ldaModel * pLda = new ldaModel(empty, test);
-
-    pLda->init(vm);
-    pLda->load_ldaModel(vm["lda-final-model"].as<string>());
-
-    pLda->read_data(empty, sd, test);
-
-    pLda->test(sd);
-
-    delete[] pLda;
-}
-
-/**
-train n-gram model
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::ngram_train(variables_map vm, const Corpus& test, Dict& sd)
-{
-    Corpus empty;
-    nGram pnGram= nGram();
-    pnGram.Initialize(vm);
-
-    for (auto & t : test)
-    {
-        for (auto & s : t)
-        {
-            pnGram.UpdateNgramCounts(s.second, 0, sd);
-            pnGram.UpdateNgramCounts(s.second, 1, sd);
-        }
-    }
-
-    pnGram.ComputeNgramModel();
-
-    pnGram.SaveModel(); 
-
-}
-
-/**
-cluster using n-gram model
-random shuffle training data and use the first half to train ngram model
-after several iterations, which have their log-likelihood reported, the ngram model assign a class id for each sentence
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::ngram_clustering(variables_map vm, const Corpus& test, Dict& sd)
-{
-    Corpus empty;
-    int ncls = vm["ngram-num-clusters"].as<int>();
-    vector<nGram> pnGram(ncls); 
-    for (auto& p: pnGram)
-        p.Initialize(vm);
-
-    cnn::real interpolation_wgt = vm["interpolation_wgt"].as<cnn::real>();
-
-    /// flatten corpus
-    Sentences order_kept_responses, response;
-    flatten_corpus(test, order_kept_responses, response);
-    order_kept_responses = response; ///
-
-    vector<long> ncnt(ncls, 0); /// every class must have at least one sample
-    int icnt = 0;
-
-    for (int iter = 0; iter < vm["epochs"].as<int>(); iter++)
-    {
-        if (iter == 0)
-        {
-            shuffle(response.begin(), response.end(), std::default_random_engine(iter));
-            for (int i = 0; i < ncls; i++)
-            {
-                pnGram[i].LoadModel(".m" + boost::lexical_cast<string>(i));
-            }
-
-            for (int i = 0; i < response.size(); i++)
-            {
-                /// every class has at least one sample
-                int cls;
-                if (icnt < ncls)
-                {
-                    if (ncnt[icnt] == 0)
-                        cls = icnt++;
-                    else
-                        cls = rand0n_uniform(ncls - 1);
-                }
-                else
-                    cls = rand0n_uniform(ncls - 1);
-
-                pnGram[cls].UpdateNgramCounts(response[i], 0, sd);
-                ncnt[cls] ++;
-            }
-#pragma omp parallel for
-            for (int i = 0; i < ncls; i++)
-            {
-                pnGram[i].ComputeNgramModel();
-                pnGram[i].SaveModel(".m" + boost::lexical_cast<string>(i));
-            }
-
-            std::fill(ncnt.begin(), ncnt.end(), 0); 
-        }
-        else
-        {
-            /// use half the data to update centroids
-
-            /// reassign data to closest cluster
-            vector<Sentences> current_assignment(ncls);
-            double totallk = 0;
-            for (int i = 0; i < order_kept_responses.size(); i++)
-            {
-                if (order_kept_responses[i].size() == 0)
-                    continue;
-
-                cnn::real largest ;
-                int iarg = closest_class_id(pnGram, 0, ncls, order_kept_responses[i], largest, interpolation_wgt);
-                
-                current_assignment[iarg].push_back(order_kept_responses[i]);
-                totallk += largest / order_kept_responses[i].size();
-                ncnt[iarg]++;
-            }
-            totallk /= order_kept_responses.size();
-
-            cout << "loglikelihood at iteration " << iter << " is " << totallk << endl;
-
-            /// check if all clusters have at least one sample
-            {
-                int icls = 0;
-                for (auto &p : ncnt)
-                {
-                    if (p < MIN_OCC_COUNT)
-                    {
-                        /// randomly pick one sample for this class
-                        current_assignment[icls].push_back(response[rand0n_uniform(order_kept_responses.size()) - 1]);
-                    }
-                    icls++;
-                }
-            }
-            std::fill(ncnt.begin(), ncnt.end(), 0);
-
-            ///update cluster
-#pragma omp parallel for
-            for (int i = 0; i < ncls; i++)
-                pnGram[i].Clear();
-
-            for (int i = 0; i < current_assignment.size(); i++)
-            {
-                for (auto & p : current_assignment[i])
-                {
-                    pnGram[i].UpdateNgramCounts(p, 0, sd);
-                    pnGram[i].UpdateNgramCounts(p, 1, sd);
-                }
-            }
-
-#pragma omp parallel for
-            for (int i = 0; i < ncls; i++)
-            {
-                pnGram[i].ComputeNgramModel();
-                pnGram[i].SaveModel(".m" + boost::lexical_cast<string>(i));
-            }
-        }
-    }
-
-    vector<int> i_data_to_cls;
-    vector<string> i_represenative;
-    representative_presentation(pnGram, order_kept_responses, sd, i_data_to_cls, i_represenative, interpolation_wgt);
-
-    /// do classification now
-    ofstream ofs;
-    if (vm.count("outputfile") > 0)
-        ofs.open(vm["outputfile"].as<string>());
-    long did = 0;
-    long idx = 0;
-    for (auto& t : test)
-    {
-        int tid = 0;
-        for (auto& s : t)
-        {
-            long iarg = i_data_to_cls[idx++];
-            
-            string userstr;
-            for (auto& p : s.first)
-                userstr = userstr + " " + sd.Convert(p);
-            string responsestr;
-            for (auto& p : s.second)
-                responsestr = responsestr + " " + sd.Convert(p);
-
-            string ostr = boost::lexical_cast<string>(did)+ " ||| " + boost::lexical_cast<string>(tid)+ " ||| " + userstr + " ||| " + responsestr;
-            ostr = ostr + " ||| " + boost::lexical_cast<string>(iarg)+" ||| " + i_represenative[iarg];
-            if (ofs.is_open())
-            {
-                ofs << ostr << endl;
-            }
-            else
-                cout << ostr << endl;
-
-            tid++;
-        }
-        did++;
-    }
-
-    if (ofs.is_open())
-        ofs.close();
-}
-
-/**
-keep turn id
-each turn has its own clusters
-ngram counts are not reliable. so use edit distance
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::ngram_one_pass_clustering(variables_map vm, const Corpus& test, Dict& sd)
-{
-#define MAXTURNS 100
-    Corpus empty;
-    int ncls = vm["ngram-num-clusters"].as<int>();
-    vector<int> data2cls;
-    vector<cnn::real> cls2score; /// the highest score in this class
-    vector<Sentence> cls2data;  /// class to its closest response
-
-    vector<int> cls_cnt; 
-    vector<nGram> pnGram; 
-
-    cnn::real threshold = vm["llkthreshold"].as<cnn::real>();
-
-    cnn::real interpolation_wgt = vm["interpolation_wgt"].as<cnn::real>();
-
-    vector<long> ncnt(MAXTURNS, 0); /// every class must have at least one sample
-
-    long sid = 0; 
-    for (auto& d : test)
-    {
-        for (auto &t : d)
-        {
-            Sentence rep = remove_first_and_last(t.second);
-
-            cnn::real largest = LZERO;
-            int iarg;
-
-            if (pnGram.size() > 0)
-                iarg = closest_class_id(pnGram, 0, pnGram.size(), rep, largest, interpolation_wgt);
-
-            if (largest < threshold && pnGram.size() < ncls)
-            {
-                pnGram.push_back(nGram());
-                pnGram.back().Initialize(vm);
-                pnGram.back().UpdateNgramCounts(rep, 0, sd);
-                pnGram.back().UpdateNgramCounts(rep, 1, sd);
-                iarg = pnGram.size() - 1; 
-            }
-            else{
-                pnGram[iarg].UpdateNgramCounts(rep, 0, sd);
-                pnGram[iarg].UpdateNgramCounts(rep, 1, sd);
-            }
-
-            /// update centroid periodically
-            if ((pnGram.size() < ncls) || ((pnGram.size() > ncls - 1) && sid % 1000 == 0))
-            {
-                for (auto &p : pnGram){
-                    p.ComputeNgramModel();
-                }
-            }
-            
-            sid++;
-        }
-    }
-
-    /// do classification now
-    vector<Sentence> typical_response(pnGram.size()); 
-    vector<cnn::real> best_score(pnGram.size(), LZERO);
-
-    ofstream ofs;
-    if (vm.count("outputfile") > 0)
-        ofs.open(vm["outputfile"].as<string>());
-    long did = 0;
-    long idx = 0;
-    for (auto& t : test)
-    {
-        int tid = 0;
-        for (auto& s : t)
-        {
-            cnn::real largest;
-            Sentence rep = remove_first_and_last(s.second);
-            long iarg = closest_class_id(pnGram, 0, pnGram.size(), rep, largest, interpolation_wgt);
-
-            if (best_score[iarg] < largest)
-            {
-                best_score[iarg] = largest;
-                typical_response[iarg] = s.second;
-            }
-            data2cls.push_back(iarg);
-        }
-    }
-
-    vector<string> i_representative;
-    for (auto& p : typical_response)
-    {
-        string sl = "";
-        for (auto w : p)
-            sl = sl + sd.Convert(w) + " ";
-        i_representative.push_back(sl);
-    }
-
-    long dataid = 0; 
-    did = 0; 
-    for (auto& t : test)
-    {
-        int tid = 0;
-        for (auto& s : t)
-        {
-            string userstr;
-            for (auto& p : s.first)
-                userstr = userstr + " " + sd.Convert(p);
-            string responsestr;
-            for (auto& p : s.second)
-                responsestr = responsestr + " " + sd.Convert(p);
-
-            int iarg = data2cls[dataid];
-            string ostr = boost::lexical_cast<string>(did)+" ||| " + boost::lexical_cast<string>(tid)+" ||| " + userstr + " ||| " + responsestr;
-            ostr = ostr + " ||| " + boost::lexical_cast<string>(iarg)+" ||| " + i_representative[iarg];
-            if (ofs.is_open())
-            {
-                ofs << ostr << endl;
-            }
-            else
-                cout << ostr << endl;
-
-            tid++;
-            dataid++;
-        }
-        did++;
-    }
-
-    if (ofs.is_open())
-        ofs.close();
-}
-
-/**
-obtain the closet class id. the class has been orgnaized linearly
-for example, the following is a vector of two large cluster, and there are three subclasses within each cluster
-[cls_01 cls_02 cls_03 cls_11 cls_12 cls_13]
-return the index, base 0, of the position of the class that has the largest likelihood. 
-The index is an absolution position, with offset of the base class position.
-*/
-template<class AM_t>
-int TrainProcess<AM_t>::closest_class_id(vector<nGram>& pnGram, int this_cls, int nclsInEachCluster , const Sentence& obs,
-    cnn::real& score, cnn::real interpolation_wgt)
-{
-    vector<cnn::real> llk(nclsInEachCluster);
-    for (int c = 0; c < nclsInEachCluster; c++)
-        llk[c] = pnGram[c + this_cls * nclsInEachCluster].GetSentenceLL(obs, interpolation_wgt);
-
-    cnn::real largest = llk[0];
-    int iarg = 0;
-    for (int c = 1; c < nclsInEachCluster; c++)
-    {
-        if (llk[c] > largest)
-        {
-            largest = llk[c];
-            iarg = c;
-        }
-    }
-    score = largest;
-    return iarg + this_cls; 
-}
-/**
-Find the top representative in each class and assign a representative, together with its index, to the original input
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::representative_presentation(
-    vector<nGram> pnGram, 
-    const Sentences& responses, 
-    Dict& sd, 
-    vector<int>& i_data_to_cls, 
-    vector<string>& i_representative,
-    cnn::real interpolation_wgt)
-{
-
-    long did = 0;
-    int ncls = pnGram.size();
-    vector<cnn::real> i_so_far_largest_score(ncls, -10000.0);/// the vector saving the largest score of a cluster from any observations so far
-    vector<int> i_the_closet_input(ncls, -1); /// the index to the input that has the closest distance to centroid of each class
-    i_representative.resize(ncls, "");
-
-    for (auto& t : responses)
-    {
-        cnn::real largest;
-        int iarg = closest_class_id(pnGram, 0, ncls, t, largest, interpolation_wgt);
-        i_data_to_cls.push_back(iarg);
-
-        long icls = 0;
-        for (auto& p : pnGram)
-        {
-            cnn::real lk = p.GetSentenceLL(t, interpolation_wgt);
-            if (i_so_far_largest_score[icls] < lk)
-            {
-                i_so_far_largest_score[icls] = lk;
-                i_the_closet_input[icls] = i_data_to_cls.size() - 1;
-            }
-            icls++;
-        }
-    }
-
-    /// represent the cluster with closest observation
-    int i_representations = 0;
-    for (int i = 0; i < ncls; i++)
-    {
-        i_representative[i] = "";
-        if (i_the_closet_input[i] >= 0)
-        {
-            for (auto& p : responses[i_the_closet_input[i]])
-                i_representative[i] = i_representative[i] + " " + sd.Convert(p);
-            i_representations++;
-        }
-        else{
-            cout << "cluster" << i << " is empty" << endl;
-            throw("cluster is empty");
-        }
-    }
-
-    cout << "total " << i_representations << " representations " << endl;
-}
-
-/**
-Given trained model, do hierarchical ngram clustering
-*/
-template <class AM_t>
-void TrainProcess<AM_t>::hierarchical_ngram_clustering(variables_map vm, const CorpusWithClassId& test, Dict& sd)
-{
-    Corpus empty;
-    int ncls = vm["ngram-num-clusters"].as<int>();
-    int nclsInEachCluster = vm["ncls-in-each-cluster"].as<int>();
-    vector<nGram> pnGram(ncls*nclsInEachCluster);
-    long i = 0;
-    for (auto& p : pnGram)
-    {
-        p.Initialize(vm);
-        p.LoadModel(".m" + boost::lexical_cast<string>(i));
-        i++;
-    }
-
-    cnn::real interpolation_wgt = vm["interpolation_wgt"].as<cnn::real>();
-
-    /// flatten corpus
-    Sentences user_inputs;
-    vector<SentenceWithId> response, not_randomly_shuffled_response;
-    flatten_corpus(test, user_inputs, response);
-    not_randomly_shuffled_response = response; /// backup of response that is not randomly shuffled
-    user_inputs.clear();
-
-    /// do classification now
-    ofstream ofs;
-    if (vm.count("outputfile") > 0)
-        ofs.open(vm["outputfile"].as<string>());
-    long did = 0;
-    vector<cnn::real> i_so_far_largest_score(ncls * nclsInEachCluster, -10000.0);/// the vector saving the largest score of a cluster from any observations so far
-    vector<int> i_the_closet_input(ncls * nclsInEachCluster, -1); /// the index to the input that has the closest distance to centroid of each class
-    vector<int> i_data_to_cls;
-    for (auto& t : test)
-    {
-        for (auto& s : t)
-        {
-            int this_cls = s.second.second;
-            int cls_offset = this_cls * nclsInEachCluster;
-            vector<cnn::real> llk(nclsInEachCluster);
-            for (int i = 0; i < nclsInEachCluster; i++)
-                llk[i] = pnGram[i + cls_offset].GetSentenceLL(s.second.first, interpolation_wgt);
-
-            cnn::real largest = llk[0];
-            int iarg = 0;
-            for (int i = 1; i < nclsInEachCluster; i++)
-            {
-                if (llk[i] > largest)
-                {
-                    largest = llk[i];
-                    iarg = i;
-                }
-            }
-            iarg += cls_offset;
-            i_data_to_cls.push_back(iarg);
-
-            /// update representation of this class
-            if (i_so_far_largest_score[iarg] < largest)
-            {
-                i_so_far_largest_score[iarg] = largest;
-                i_the_closet_input[iarg] = i_data_to_cls.size() - 1;
-            }
-        }
-    }
-
-    /// represent the cluster with closest observation
-    vector<string> i_representative(ncls * nclsInEachCluster);
-    for (int i = 0; i < ncls *nclsInEachCluster; i++)
-    {
-        i_representative[i] = "";
-        if (i_the_closet_input[i] >= 0)
-        for (auto& p : not_randomly_shuffled_response[i_the_closet_input[i]].first)
-            i_representative[i] = i_representative[i] + " " + sd.Convert(p);
-    }
-
-    long idx = 0;
-    for (auto& t : test)
-    {
-        int tid = 0;
-        for (auto& s : t)
-        {
-            int iarg = i_data_to_cls[idx];
-
-            string userstr;
-            for (auto& p : s.first)
-                userstr = userstr + " " + sd.Convert(p);
-            string responsestr;
-            for (auto& p : s.second.first)
-                responsestr = responsestr + " " + sd.Convert(p);
-
-            string ostr = boost::lexical_cast<string>(did)+" ||| " + boost::lexical_cast<string>(tid)+" ||| " + userstr + " ||| " + responsestr;
-            ostr = ostr + " ||| " + boost::lexical_cast<string>(iarg)+" ||| " + i_representative[iarg];
-            if (ofs.is_open())
-            {
-                ofs << ostr << endl;
-            }
-            else
-                cout << ostr << endl;
-
-            tid++;
-            idx++;
-        }
-        did++;
-    }
-
-    if (ofs.is_open())
-        ofs.close();
-}
-
 template <class Proc>
 class ClassificationTrainProcess : public TrainProcess<Proc>{
 public:
@@ -2455,6 +1246,9 @@ public:
     void batch_train(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, int max_epochs, int nparallel, cnn::real &best, bool segmental_training,
         bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic);
+
+private:
+    vector<cnn::real> ppl_hist;
 
 };
 
@@ -2530,7 +1324,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
     unsigned lines = 0;
     int epoch = 0;
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -2658,7 +1452,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
                     }
                 }
             }
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
                 ofstream out(out_file, ofstream::out);

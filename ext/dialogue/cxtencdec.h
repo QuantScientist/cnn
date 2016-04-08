@@ -46,7 +46,9 @@ class CxtEncDecModel : public DialogueBuilder<Builder, Decoder>{
     using DialogueBuilder<Builder, Decoder>::zero;
     using DialogueBuilder<Builder, Decoder>::src;
     using DialogueBuilder<Builder, Decoder>::save_context;
-	
+    using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
+    using DialogueBuilder<BUilder, Decoder>::start_new_single_instance;
+
 	using DialogueBuilder<Builder, Decoder>::nutt;
 	using DialogueBuilder<Builder, Decoder>::i_h0;
 	using DialogueBuilder<Builder, Decoder>::p_h0;
