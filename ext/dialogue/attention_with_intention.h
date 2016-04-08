@@ -64,7 +64,6 @@ class MultiSource_LinearEncoder : public DialogueBuilder<Builder, Decoder>{
     using DialogueBuilder<Builder, Decoder>::zero;
     using DialogueBuilder<Builder, Decoder>::src;
     using DialogueBuilder<Builder, Decoder>::save_context;
-    using DialogueBuilder<Builder, Decoder>::serialise_context;
     using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
     using DialogueBuilder<Builder, Decoder>::serialise;
 	
@@ -86,8 +85,6 @@ class MultiSource_LinearEncoder : public DialogueBuilder<Builder, Decoder>{
 	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
 	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
 	
-	//	using DialogueBuilder<Builder, Decoder>::combiner;
-		
 	using DialogueBuilder<Builder, Decoder>::v_errs;
 	
 protected:
@@ -655,7 +652,6 @@ class AttMultiSource_LinearEncoder : public MultiSource_LinearEncoder <Builder, 
     using DialogueBuilder<Builder, Decoder>::zero;
     using DialogueBuilder<Builder, Decoder>::src;
     using DialogueBuilder<Builder, Decoder>::save_context;
-    using DialogueBuilder<Builder, Decoder>::serialise_context;
     using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
 	
 	using DialogueBuilder<Builder, Decoder>::nutt;
@@ -684,6 +680,7 @@ class AttMultiSource_LinearEncoder : public MultiSource_LinearEncoder <Builder, 
 	using MultiSource_LinearEncoder<Builder, Decoder>::i_enc_to_intention;
 	using MultiSource_LinearEncoder<Builder, Decoder>::p_enc_to_intention;
 	
+    using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
 	
 protected:
     /// for location prediction for local attention
@@ -1160,7 +1157,6 @@ class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource
     using DialogueBuilder<Builder, Decoder>::zero;
     using DialogueBuilder<Builder, Decoder>::src;
     using DialogueBuilder<Builder, Decoder>::save_context;
-    using DialogueBuilder<Builder, Decoder>::serialise_context;
     using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
 	
 	using DialogueBuilder<Builder, Decoder>::nutt;
@@ -1197,7 +1193,9 @@ class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource
 	using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
 	using AttMultiSource_LinearEncoder<Builder, Decoder>::i_zero;
 	using AttMultiSource_LinearEncoder<Builder, Decoder>::attention_output_for_this_turn;
-	
+
+    using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
+
 protected:
     cnn::real r_softmax_scale; /// for attention softmax exponential scale
     LookupParameters* p_max_ent; /// weight for max-entropy feature
