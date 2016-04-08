@@ -188,7 +188,6 @@ Expression time_embedding_weight(size_t t, unsigned feat_dim, unsigned slen, Com
             lj[k] -= (k + 1.0) / feat_dim * (1 - 2.0 * (t  + 1.0) / slen );
         }
         Expression wgt = input(cg, { feat_dim }, &lj);
-        cg.incremental_forward();
         m_time_embedding_weight[t][feat_dim][slen] = wgt;
     }
     return m_time_embedding_weight[t][feat_dim][slen] ;

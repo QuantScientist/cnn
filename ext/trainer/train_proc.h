@@ -786,7 +786,6 @@ void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PD
             am.build_graph(prv_turn, turn, cg);
         }
 
-        cg.incremental_forward();
         //            CheckGrad(model, cg);
 
         prv_turn = turn;

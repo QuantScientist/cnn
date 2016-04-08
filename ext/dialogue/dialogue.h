@@ -634,7 +634,6 @@ public:
          }
          else
              context.add_input(q_m);
-         cg.incremental_forward();
 
          save_context(cg);
 
