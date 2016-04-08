@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ext/trainer/train_proc.h"
+#include "ext/dialogue/global_variable.h"
 
 template<class rnn_t, class TrainProc>
 void prt_model_info(size_t LAYERS, size_t VOCAB_SIZE_SRC, const vector<unsigned>& dims, size_t nreplicate, size_t decoder_additiona_input_to, size_t mem_slots, cnn::real scale)

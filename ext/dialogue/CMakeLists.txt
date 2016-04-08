@@ -6,6 +6,7 @@ set(dialogue_library_HDRS
     dialogue_process.h
     attention_with_intention.h
     dialogue.h
+    global_variable.h
 )
 
 

@@ -18,6 +18,7 @@
 //#include "cnn/decode.h"
 //#include "rl.h"
 #include "ext/dialogue/dialogue.h"
+#include "ext/dialogue/global_variable.h"
 #include "cnn/approximator.h"
 
 #include <algorithm>

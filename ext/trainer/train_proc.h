@@ -16,6 +16,7 @@
 #include "cnn/data-util.h"
 #include "cnn/grad-check.h"
 #include "cnn/metric-util.h"
+#include "ext/dialogue/global_variable.h"
 
 #include <iostream>
 #include <fstream>
@@ -56,33 +57,33 @@ using namespace boost::program_options;
 
 #define LEVENSHTEIN_THRESHOLD 5
 
-unsigned LAYERS = 2;
-unsigned HIDDEN_DIM = 50;  // 1024
-unsigned ALIGN_DIM = 25;  // 1024
-unsigned VOCAB_SIZE_SRC = 0;
-unsigned VOCAB_SIZE_TGT = 0;
-long nparallel = -1;
-long mbsize = -1;
-size_t g_train_on_turns = 1; 
-
-cnn::Dict sd;
-cnn::Dict td;
-cnn::stId2String<string> id2str;
-
-int kSRC_SOS;
-int kSRC_EOS;
-int kTGT_SOS;
-int kTGT_EOS;
-int verbose;
-int beam_search_decode;
-cnn::real lambda = 1e-6;
-int repnumber;
-
-Sentence prv_response;
-
-NumTurn2DialogId training_numturn2did;
-NumTurn2DialogId devel_numturn2did;
-NumTurn2DialogId test_numturn2did;
+//unsigned LAYERS = 2;
+//unsigned HIDDEN_DIM = 50;  // 1024
+//unsigned ALIGN_DIM = 25;  // 1024
+//unsigned VOCAB_SIZE_SRC = 0;
+//unsigned VOCAB_SIZE_TGT = 0;
+//long nparallel = -1;
+//long mbsize = -1;
+//size_t g_train_on_turns = 1; 
+//
+//cnn::Dict sd;
+//cnn::Dict td;
+//cnn::stId2String<string> id2str;
+//
+//int kSRC_SOS;
+//int kSRC_EOS;
+//int kTGT_SOS;
+//int kTGT_EOS;
+//int verbose;
+//int beam_search_decode;
+//cnn::real lambda = 1e-6;
+//int repnumber;
+//
+//Sentence prv_response;
+//
+//NumTurn2DialogId training_numturn2did;
+//NumTurn2DialogId devel_numturn2did;
+//NumTurn2DialogId test_numturn2did;
 
 void reset_smoothed_ppl(vector<cnn::real>& ppl_hist);
 cnn::real smoothed_ppl(cnn::real curPPL, vector<cnn::real>& ppl_hist);
@@ -294,9 +295,9 @@ cnn::real TrainProcess<AM_t>::testPPL(Model &model, AM_t &am, Corpus &devel, Num
 }
 
 /** warning, the test function use the true past response as the context, when measure bleu score
-• So the BLEU score is artificially high
-• However, because the use input is conditioned on the past response. If using the true decoder response as the past context, the user input cannot be from the corpus.
-• Therefore, it is reasonable to use the true past response as context when evaluating the model.
+?So the BLEU score is artificially high
+?However, because the use input is conditioned on the past response. If using the true decoder response as the past context, the user input cannot be from the corpus.
+?Therefore, it is reasonable to use the true past response as context when evaluating the model.
 */
 template <class AM_t>
 void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
@@ -372,9 +373,9 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
 }
 
 /** warning, the test function use the true past response as the context, when measure bleu score
-• So the BLEU score is artificially high
-• However, because the use input is conditioned on the past response. If using the true decoder response as the past context, the user input cannot be from the corpus.
-• Therefore, it is reasonable to use the true past response as context when evaluating the model.
+?So the BLEU score is artificially high
+?However, because the use input is conditioned on the past response. If using the true decoder response as the past context, the user input cannot be from the corpus.
+?Therefore, it is reasonable to use the true past response as context when evaluating the model.
 */
 template <class AM_t>
 void TrainProcess<AM_t>::test_segmental(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
