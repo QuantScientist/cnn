@@ -24,7 +24,7 @@ void Initialize_CUDNN()
     else if (sizeof(cnn::real) == sizeof(double))
         cudnnDataType = CUDNN_DATA_DOUBLE;
     else
-        throw std::exception("not supported data type");
+        throw std::runtime_error("not supported data type");
 
     CHECK_CUDNN(cudnnCreate(&cudnn_handle));
 }

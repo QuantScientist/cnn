@@ -91,7 +91,11 @@ if(WITH_CUDA_BACKEND)
   find_package(CUDA REQUIRED)
 
   set(CUDA_INCLUDE_DIRS ${CUDA_ROOT}/include)
-  set(CUDA_LIBRARIES ${CUDA_ROOT}/lib/x64)
+  if (CYGWIN OR UNIX OR LINUX)
+     set(CUDA_LIBRARIES ${CUDA_ROOT}/lib64)
+  else()
+    set(CUDA_LIBRARIES ${CUDA_ROOT}/lib/x64)
+  endif()
   set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_ROOT})
 
   include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
@@ -99,7 +103,11 @@ if(WITH_CUDA_BACKEND)
   set(LIBS ${LIBS} ${CUDA_LIBRARIES})
   link_directories(${CUDA_LIBRARIES})
 
+  if (WIN32 OR WIN64)
   set(CUDNN_LIB ${CUDA_LIBRARIES}/cudnn.lib)
+  else()
+  set(CUDNN_LIB ${CUDA_LIBRARIES}/libcudnn_static.a)
+  endif()
 endif()
 
 # look for Eigen
