@@ -88,7 +88,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     typedef pair<Sentence, Sentence> SentencePair;
     Corpus training, devel, testcorpus;
     string line;
-    cnn::real largest_dev_cost = 9e+99;
+    cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
     TrainProc  * ptrTrainer = nullptr;
 
     if (vm.count("readdict"))
@@ -259,8 +259,8 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         // a mirrow of the agent to generate decoding results so that their results can be evaluated
         // this is not efficient implementation, better way is to share model parameters
         int n_reinforce_train = vm["num_reinforce_train"].as<int>();
-        cnn::real largest_cost = 9e+99;
-        ptrTrainer->reset_smoothed_ppl();
+        cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
+        reset_smoothed_ppl(ptrTrainer->ppl_hist);
         for (size_t k_reinforce = 0; k_reinforce <= n_reinforce_train; k_reinforce++)
         {
             Model model_mirrow;
