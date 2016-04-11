@@ -3175,6 +3175,45 @@ or can be simpler such as bilinear model
 */
 template <class Builder, class Decoder>
 class MultiSource_LinearEncoder : public DialogueBuilder<Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+    using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
+    using DialogueBuilder<Builder, Decoder>::serialise;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	
 protected:
     /// time-dependent embedding weight
     map<size_t, map<size_t, tExpression>> m_time_embedding_weight;
@@ -3301,7 +3340,6 @@ public:
         if (verbose)
             cout << "MultiSource_LinearEncoder::decoder_step" << endl;
         Expression i_c_t;
-        unsigned int nutt = trg_tok.size();
         Expression i_h_t;  /// the decoder output before attention
         Expression i_h_attention_t; /// the attention state
         vector<Expression> v_x_t;
@@ -3725,6 +3763,52 @@ public:
 */
 template <class Builder, class Decoder>
 class AttMultiSource_LinearEncoder : public MultiSource_LinearEncoder <Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+    using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using MultiSource_LinearEncoder<Builder, Decoder>::combiner;
+		
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	using MultiSource_LinearEncoder<Builder, Decoder>::i_cxt_to_decoder;
+	using MultiSource_LinearEncoder<Builder, Decoder>::p_cxt_to_decoder;
+	using MultiSource_LinearEncoder<Builder, Decoder>::i_enc_to_intention;
+	using MultiSource_LinearEncoder<Builder, Decoder>::p_enc_to_intention;
+	
+    using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
+	
 protected:
     /// for location prediction for local attention
     Parameters* p_va_local, *p_Wa_local, *p_ba_local;
@@ -3980,7 +4064,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
             Expression i_r_t = i_R * i_y_t;
-            Expression i_ydist = softmax(i_r_t);
+            Expression i_ydist = log_softmax(i_r_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -3990,7 +4074,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4039,7 +4123,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
             Expression i_r_t = i_R * i_y_t;
-            Expression i_ydist = softmax(i_r_t);
+            Expression i_ydist = log_softmax(i_r_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4049,7 +4133,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4184,6 +4268,61 @@ Use attentional max-entropy features or direct features
 */
 template <class Builder, class Decoder>
 class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource_LinearEncoder <Builder, Decoder>{
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+    using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using MultiSource_LinearEncoder<Builder, Decoder>::combiner;
+		
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	using MultiSource_LinearEncoder<Builder, Decoder>::i_cxt_to_decoder;
+	using MultiSource_LinearEncoder<Builder, Decoder>::p_cxt_to_decoder;
+	using MultiSource_LinearEncoder<Builder, Decoder>::i_enc_to_intention;
+	using MultiSource_LinearEncoder<Builder, Decoder>::p_enc_to_intention;
+	
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::i_Wa;
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::p_Wa;
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::i_va;
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::p_va;
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::attention_layer;
+	using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::i_zero;
+	using AttMultiSource_LinearEncoder<Builder, Decoder>::attention_output_for_this_turn;
+
+    using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
+
 protected:
     cnn::real r_softmax_scale; /// for attention softmax exponential scale
     LookupParameters* p_max_ent; /// weight for max-entropy feature
@@ -4436,7 +4575,7 @@ public:
             }
             Expression i_y_t = decoder_step(vobs, cg);
 
-            Expression i_ydist = softmax(i_y_t);
+            Expression i_ydist = log_softmax(i_y_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
@@ -4446,7 +4585,7 @@ public:
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }
@@ -4494,17 +4633,17 @@ public:
                     vobs.push_back(-1);
             }
             Expression i_y_t = decoder_step(vobs, cg);
-            Expression i_ydist = softmax(i_y_t);
+            Expression i_ydist = log_softmax(i_y_t);
 
             Expression x_r_t = reshape(i_ydist, { vocab_size * nutt });
 
-            for (int i = 0; i < nutt; i++)
+            for (unsigned int i = 0; i < nutt; i++)
             {
                 int offset = i * vocab_size;
                 if (t < target_response[i].size() - 1)
                 {
                     /// only compute errors on with output labels
-                    this_errs[i].push_back(-log(pick(x_r_t, target_response[i][t + 1] + offset)));
+                    this_errs[i].push_back(-pick(x_r_t, target_response[i][t + 1] + offset));
                     tgt_words++;
                 }
             }

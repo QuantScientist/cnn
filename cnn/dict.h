@@ -18,8 +18,7 @@
 #include <boost/serialization/unordered_map.hpp>
 #include <boost/serialization/string.hpp>
 #endif
-
-//#define INPUT_UTF8
+#include <boost/lexical_cast.hpp>
 
 using namespace std;
 namespace cnn {

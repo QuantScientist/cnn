@@ -31,6 +31,8 @@ set(cnn_library_SRCS
     dglstm.cc
     treelstm.cc
     metric-util.cc
+    ../ext/trainer/train_proc.cc
+    ../ext/lda/lda.cc
 )
 
 # Headers:
