@@ -26,6 +26,34 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/range/irange.hpp>
 
+extern unsigned LAYERS;
+extern unsigned HIDDEN_DIM;  // 1024
+extern unsigned ALIGN_DIM;  // 1024
+extern unsigned VOCAB_SIZE_SRC;
+extern unsigned VOCAB_SIZE_TGT;
+extern long nparallel;
+extern long mbsize;
+extern size_t g_train_on_turns; 
+
+extern cnn::Dict sd;
+extern cnn::Dict td;
+extern cnn::stId2String<string> id2str;
+
+extern int kSRC_SOS;
+extern int kSRC_EOS;
+extern int kTGT_SOS;
+extern int kTGT_EOS;
+extern int verbose;
+extern int beam_search_decode;
+extern cnn::real lambda;
+extern int repnumber;
+
+extern Sentence prv_response;
+
+extern NumTurn2DialogId training_numturn2did;
+extern NumTurn2DialogId devel_numturn2did;
+extern NumTurn2DialogId test_numturn2did;
+
 using namespace std;
 
 namespace cnn {
@@ -252,8 +280,7 @@ namespace cnn {
                 cout << endl;
 
             prv_response = decode_output;
-
-            return response;
+            return response; 
         }
 
         /// return levenshtein between responses and reference
@@ -261,8 +288,6 @@ namespace cnn {
         {
             string shuman;
             string response;
-
-            unsigned lines = 0;
 
             int iDist = 0;
 
@@ -319,8 +344,6 @@ namespace cnn {
         {
             string shuman;
             string response;
-
-            unsigned lines = 0;
 
             int iDist = 0;
 
@@ -1059,6 +1082,12 @@ namespace cnn {
 
     template <class DBuilder>
     class MultiSourceDialogue: public DialogueProcessInfo<DBuilder>{
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
+		using DialogueProcessInfo<DBuilder>::s2tmodel;		
     public:
         explicit MultiSourceDialogue(cnn::Model& model,
             const vector<unsigned int>& layers,
@@ -1155,14 +1184,14 @@ namespace cnn {
             return s2terr;
         }
 
-        Expression build_graph(const TupleDialogue & cur_sentence, ComputationGraph& cg) override
+        Expression build_graph(const TupleDialogue & , ComputationGraph& ) override
         {
             Expression v;
             return v;
         }
 
         /// for all speakers with history
-        Expression build_graph(const TupleDialogue & prv_sentence, const TupleDialogue & cur_sentence, ComputationGraph& cg)
+        Expression build_graph(const TupleDialogue & , const TupleDialogue & cur_sentence, ComputationGraph& )
         {
             Expression v;
             return v;
@@ -1184,6 +1213,12 @@ namespace cnn {
 
     template <class DBuilder>
     class ClassificationBasedMultiSourceDialogue : public DialogueProcessInfo<DBuilder>{
+		public:
+		using DialogueProcessInfo<DBuilder>::swords;		
+		using DialogueProcessInfo<DBuilder>::twords;		
+		using DialogueProcessInfo<DBuilder>::nbr_turns;		
+		using DialogueProcessInfo<DBuilder>::s2txent;		
+		using DialogueProcessInfo<DBuilder>::s2tmodel;		
     public:
         explicit ClassificationBasedMultiSourceDialogue(cnn::Model& model,
             const vector<unsigned int>& layers,
