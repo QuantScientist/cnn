@@ -268,7 +268,7 @@ public:
     data is organized in v_decoder_context as [nutt][replicate_hidden_layers]
     after this process, to_cxt will be organized as [replicate_hidden_layers][nutt] 
     */
-    void save_context(ComputationGraph& cg)
+    void save_context(ComputationGraph& )
     {
         to_cxt.clear();
         if (v_decoder_context.size() == 0)
@@ -634,7 +634,6 @@ public:
          }
          else
              context.add_input(q_m);
-         cg.incremental_forward();
 
          save_context(cg);
 
