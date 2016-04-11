@@ -273,7 +273,7 @@ public:
     void ComputeNgramModel()
     {
         /// for smoothing
-        for (long i = 0; i < vocab_size; i++)
+        for (unsigned long i = 0; i < vocab_size; i++)
             lgUniLM[i] = -log(vocab_size + nwords);
 
         /// add-one smoothing of unigram
@@ -285,7 +285,7 @@ public:
 
         /// assert
         cnn::real prb = 0.0;
-        for (long i = 0; i < vocab_size; i++)
+        for (unsigned long i = 0; i < vocab_size; i++)
             prb += exp(lgUniLM[i]);
 
         for (auto & p : bicnt)
