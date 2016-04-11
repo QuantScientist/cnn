@@ -60,33 +60,36 @@ using namespace boost::program_options;
 
 #define LEVENSHTEIN_THRESHOLD 5
 
-unsigned LAYERS = 2;
-unsigned HIDDEN_DIM = 50;  // 1024
-unsigned ALIGN_DIM = 25;  // 1024
-unsigned VOCAB_SIZE_SRC = 0;
-unsigned VOCAB_SIZE_TGT = 0;
-long nparallel = -1;
-long mbsize = -1;
-size_t g_train_on_turns = 1; 
+extern unsigned LAYERS ;
+extern unsigned HIDDEN_DIM;  // 1024
+extern unsigned ALIGN_DIM ;  // 1024
+extern unsigned VOCAB_SIZE_SRC ;
+extern unsigned VOCAB_SIZE_TGT ;
+extern long nparallel;
+extern long mbsize;
+extern size_t g_train_on_turns ;
 
-cnn::Dict sd;
-cnn::Dict td;
-cnn::stId2String<string> id2str;
+extern cnn::Dict sd;
+extern cnn::Dict td;
+extern cnn::stId2String<string> id2str;
 
-int kSRC_SOS;
-int kSRC_EOS;
-int kTGT_SOS;
-int kTGT_EOS;
-int verbose;
-int beam_search_decode;
-cnn::real lambda = 1e-6;
-int repnumber;
+extern int kSRC_SOS;
+extern int kSRC_EOS;
+extern int kTGT_SOS;
+extern int kTGT_EOS;
+extern int verbose;
+extern int beam_search_decode;
+extern cnn::real lambda; // = 1e-6;
+extern int repnumber;
 
-Sentence prv_response;
+extern Sentence prv_response;
 
-NumTurn2DialogId training_numturn2did;
-NumTurn2DialogId devel_numturn2did;
-NumTurn2DialogId test_numturn2did;
+extern NumTurn2DialogId training_numturn2did;
+extern NumTurn2DialogId devel_numturn2did;
+extern NumTurn2DialogId test_numturn2did;
+
+void reset_smoothed_ppl(vector<cnn::real>& ppl_hist);
+cnn::real smoothed_ppl(cnn::real curPPL, vector<cnn::real>& ppl_hist);
 
 #define MAX_NBR_TRUNS 200000
 struct TrainingScores{
@@ -201,11 +204,6 @@ public:
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
 
-    cnn::real smoothed_ppl(cnn::real curPPL);
-    void reset_smoothed_ppl(){
-        ppl_hist.clear();
-    }
-
 public:
     /// for LDA
     void lda_train(variables_map vm, const Corpus &training, const Corpus &test, Dict& sd);
@@ -241,7 +239,7 @@ protected:
     std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
     /// follwong the same inddex from a dictionary
 
-private:
+public:
     vector<cnn::real> ppl_hist;
 
 };
@@ -254,13 +252,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     bool segmental_training, const string& score_embedding_fn)
 {
     unsigned lines = 0;
-    cnn::real dloss = 0;
-    cnn::real dchars_s  = 0;
-    cnn::real dchars_t = 0;
 
     ofstream of(out_file);
-
-    unsigned si = devel.size(); /// number of dialgoues in training
 
     Timer iteration("completed in");
 
@@ -383,23 +376,12 @@ cnn::real TrainProcess<AM_t>::testPPL(Model &model, AM_t &am, Corpus &devel, Num
 template <class AM_t>
 void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
 {
-    unsigned lines = 0;
-    cnn::real dloss = 0;
-    cnn::real dchars_s = 0;
-    cnn::real dchars_t = 0;
-
     BleuMetric bleuScore;
     bleuScore.Initialize();
 
     ofstream of(out_file);
 
-    unsigned si = devel.size(); /// number of dialgoues in training
-
     Timer iteration("completed in");
-    cnn::real ddloss = 0;
-    cnn::real ddchars_s = 0;
-    cnn::real ddchars_t = 0;
-
 
     for (auto diag : devel){
 
@@ -630,7 +612,6 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
 {
     string shuman;
     ofstream of(out_file);
-    unsigned lines = 0;
 
     int d_idx = 0;
     while (1){
@@ -768,7 +749,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
             }
 
             size_t k = 0;
-            for (auto &p : res)
+            for (auto &q : res)
             {
 
                 sref.clear();
@@ -781,7 +762,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 
                 srec.clear();
                 if (verbose) cout << "res response: ";
-                for (auto p : res[k]){
+                for (auto p : q){
                     if (verbose) cout << sd.Convert(p) << " ";
                     srec.push_back(sd.Convert(p));
                 }
@@ -857,7 +838,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 }
 
 template <class AM_t>
-void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr)
+void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores* scores, bool resetmodel, int init_turn_id, Trainer* sgd)
 {
     size_t turn_id = init_turn_id;
     size_t i_turns = 0;
@@ -880,7 +861,6 @@ void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PD
             am.build_graph(prv_turn, turn, cg);
         }
 
-        cg.incremental_forward();
         //            CheckGrad(model, cg);
 
         prv_turn = turn;
@@ -982,7 +962,6 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     save_cnn_model(out_file, &model); 
 
@@ -995,7 +974,6 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
         cnn::real dloss = 0;
         cnn::real dchars_s = 0;
         cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
 
         for (unsigned iter = 0; iter < report_every_i;) {
 
@@ -1054,7 +1032,7 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
                 id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, devel_numturn2did);
                 ndutt = id_sel_idx.size();
             }
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < largest_cost) {
                 largest_cost = ddloss;
 
@@ -1093,10 +1071,9 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     if (b_inside_logic) 
-        reset_smoothed_ppl();
+        reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1141,7 +1118,6 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             }
 
             Dialogue prv_turn;
-            size_t turn_id = 0;
             vector<int> i_sel_idx = get_same_length_dialogues(training, nparallel, i_stt_diag_id, v_selected, v_dialogues, training_numturn2did);
             size_t nutt = i_sel_idx.size();
             if (nutt == 0)
@@ -1200,7 +1176,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 
             ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
 
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
 
@@ -1235,7 +1211,7 @@ template <class AM_t>
 void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus &devel,
     Trainer &sgd, string out_file, int max_epochs, bool bcharlevel = false, bool nosplitdialogue = false)
 {
-    cnn::real best = 9e+99;
+    cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
     unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
@@ -1251,7 +1227,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
 
     save_cnn_model(out_file, &model);
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1394,7 +1370,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
             }
 
             dev_set_scores->compute_score();
-            cnn::real ddloss = smoothed_ppl(dev_set_scores->dloss);
+            cnn::real ddloss = smoothed_ppl(dev_set_scores->dloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
 
@@ -1558,26 +1534,6 @@ void TrainProcess<AM_t>::collect_sample_responses(AM_t& am, Corpus &training)
     }
 }
 
-/// smooth PPL on three points with 0.9 forgetting factor
-template<class AM_t>
-cnn::real TrainProcess<AM_t>::smoothed_ppl(cnn::real curPPL)
-{
-    if (ppl_hist.size() == 0)
-        ppl_hist.resize(3, curPPL);
-    ppl_hist.push_back(curPPL);
-    if (ppl_hist.size() > 3)
-        ppl_hist.erase(ppl_hist.begin());
-
-    cnn::real finPPL = 0;
-    size_t k = 0;
-    for (auto p : ppl_hist)
-    {
-        finPPL += p;
-        k++;
-    }
-    return finPPL/k;
-}
-
 /**
 overly pre-train models on small subset of the data 
 */
@@ -1586,13 +1542,13 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
     bool bcharlevel = false, bool nosplitdialogue = false)
 {
-    cnn::real best = 9e+99;
+    cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
     unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
     boost::mt19937 rng;                 // produces randomness out of thin air
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     size_t sample_step = 100;
     size_t maxepoch = sample_step * 10; /// no point of using more than 100 epochs, which correspond to use full data with 10 epochs for pre-train
@@ -1716,7 +1672,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
 
         prv_epoch = floor(sgd.epoch);
 
-        cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t));
+        cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t), ppl_hist);
         if (best > i_ppl)
         {
             best = i_ppl;
@@ -1804,10 +1760,10 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     int max_epochs, int nparallel, int epochsize, bool segmental_training,
     bool do_gradient_check, bool do_padding)
 {
-    cnn::real largest_cost = 9e+99;
-    cnn::real largest_dev_cost = 9e+99;
+    cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
+    cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     DataReader dr(train_filename);
     int trial = 0;
@@ -1849,7 +1805,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
                 cnn::real ddloss, ddchars_s, ddchars_t;
                 ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
 
-                ddloss = smoothed_ppl(ddloss);
+                ddloss = smoothed_ppl(ddloss, ppl_hist);
                 if (ddloss < largest_dev_cost) {
                     /// save the model with the best performance on the dev set
                     largest_dev_cost = ddloss;
