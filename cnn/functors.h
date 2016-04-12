@@ -394,12 +394,12 @@ struct FBinaryLogLoss {
     }
     else if (x_true == 0.f) {
       if (x == 1.f) x_tmp = CNN_DEVICE_MIN;
-      return (x_true - 1.f) * log1p(-x_tmp);
+      return (x_true - 1.f) * log1pf(-x_tmp);
     }
     else {
       if (x == 0.f) x_tmp = CNN_DEVICE_MIN;
       if (x == 1.f) x_tmp = CNN_DEVICE_MIN;
-      return -1.f * (x_true * log(x_tmp) + (1.f - x_true) * log1p(-x_tmp));
+      return -1.f * (x_true * log(x_tmp) + (1.f - x_true) * log1pf(-x_tmp));
     }
   }
 };

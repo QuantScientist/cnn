@@ -79,7 +79,7 @@ template<class Proc>
 void EvaluateProcess<Proc>::emb2expression(ComputationGraph& cg)
 {
     eWordEmbedding.clear();
-    for (auto& p : vWordEmbdding)
+    for (auto& p : vWordEmbedding)
     {
         Expression x = vec2exp(p.second, cg);
         eWordEmbedding[p.first] = x;

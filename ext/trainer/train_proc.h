@@ -18,6 +18,8 @@
 #include "ext/ngram/ngram.h"
 #include "cnn/data-util.h"
 #include "cnn/grad-check.h"
+#include "cnn/metric-util.h"
+#include "ext/trainer/eval_proc.h"
 
 #include <iostream>
 #include <fstream>
@@ -163,7 +165,7 @@ public:
         );
     void supervised_pretrain(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
-        bool bcharlevel = false, bool nosplitdialogue = false);
+        bool bcharlevel, bool nosplitdialogue);
 
     /// adaptation using a small adaptation
     void online_adaptation(Model &model, Proc &am,
@@ -175,7 +177,7 @@ public:
 
     void train(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, int max_epochs, 
-        bool bcharlevel = false, bool nosplitdialogue = false);
+        bool bcharlevel, bool nosplitdialogue);
     void train(Model &model, Proc &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs);
     void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
     void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding);
@@ -1209,7 +1211,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 */
 template <class AM_t>
 void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus &devel,
-    Trainer &sgd, string out_file, int max_epochs, bool bcharlevel = false, bool nosplitdialogue = false)
+    Trainer &sgd, string out_file, int max_epochs, bool bcharlevel, bool nosplitdialogue)
 {
     cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
@@ -1410,7 +1412,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
 
     save_cnn_model(out_file, &model);
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1499,7 +1501,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
 
         if (fmod(lines , (cnn::real)training.size()) == 0)
         {
-            cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t));
+	  cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t), ppl_hist);
             if (best > i_ppl)
             {
                 best = i_ppl;
@@ -2446,6 +2448,9 @@ public:
         Trainer &sgd, string out_file, int max_epochs, int nparallel, cnn::real &best, bool segmental_training,
         bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic);
 
+public:
+    vector<cnn::real> ppl_hist;
+
 };
 
 
@@ -2514,7 +2519,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
     unsigned lines = 0;
     int epoch = 0;
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -2642,7 +2647,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
                     }
                 }
             }
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
                 save_cnn_model(out_file, &model);

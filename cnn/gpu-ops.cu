@@ -498,7 +498,8 @@ void conv2dnarrow(const cnn::real* kscalar_one, const cnn::real* kscalar_zero,
     const int frow, const int fcol, const cnn::real *fx, 
     const int yrow, const int ycol, cnn::real *fy)
 {
-    cudnnTensorDescriptor_t pInputDesc;
+    /*
+cudnnTensorDescriptor_t pInputDesc;
     cudnnTensorDescriptor_t pOutputDesc;
     cudnnFilterDescriptor_t pFilterDesc = nullptr;
     cudnnConvolutionDescriptor_t pConvDesc = nullptr;
@@ -547,6 +548,7 @@ void conv2dnarrow(const cnn::real* kscalar_one, const cnn::real* kscalar_zero,
 
     if (bNeedAllocateNewSpace)
         CUDA_CHECK(cudaFree(tmp_work_space));
+*/
 }
 
 void conv1dwide(const int n, const int m, const cnn::real* xs, 

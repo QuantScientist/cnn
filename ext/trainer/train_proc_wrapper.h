@@ -233,7 +233,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
 
     if (vm["pretrain"].as<cnn::real>() > 0)
     {
-        ptrTrainer->supervised_pretrain(model, hred, training, devel, *sgd, fname, vm["pretrain"].as<cnn::real>(), 1);
+      ptrTrainer->supervised_pretrain(model, hred, training, devel, *sgd, fname, vm["pretrain"].as<cnn::real>(), 1, false, false);
         delete sgd;
 
         /// reopen sgd

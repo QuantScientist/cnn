@@ -70,7 +70,7 @@ public:
     {
         int prv_wrd = -1;
         cnn::real prob = 0.0;
-        for (int n = 0; n < refTokens.size(); n++)
+        for (int n = 0; n < (int)refTokens.size(); n++)
         {
             int wrd = sd.Convert(refTokens[n]);
             if (n == 0)
@@ -94,7 +94,7 @@ public:
     {
         int prv_wrd = -1;
         cnn::real prob = 0.0;
-        for (int n = 0; n < refTokens.size(); n++)
+        for (int n = 0; n < (int)refTokens.size(); n++)
         {
             int wrd = refTokens[n]; 
             if (n == 0)
@@ -179,13 +179,13 @@ public:
     void UpdateNgramCounts(const vector<string> & tokens, int order, Dict& sd)
     {
         vocab_size = sd.size();
-        if (tokens.size() < order)
+        if ((int)tokens.size() < order)
             return;
 
         int n = order;
         if (n > 2)
             throw("only support bigram");
-        for (int i = 0; i < tokens.size() - n; i++)
+        for (int i = 0; i < (int)tokens.size() - n; i++)
         {
             vector<int> sb;
             for (int j = 0; j <= n; j++)
@@ -226,13 +226,13 @@ public:
     void UpdateNgramCounts(const Sentence & tokens, int order, Dict& sd)
     {
         vocab_size = sd.size();
-        if (tokens.size() < order)
+        if ((int)tokens.size() < order)
             return;
 
         int n = order;
         if (n > NgramOrder)
             throw("only support bigram");
-        for (int i = 0; i < tokens.size() - n; i++)
+        for (int i = 0; i < (int)tokens.size() - n; i++)
         {
             vector<int> sb;
             for (int j = 0; j <= n; j++)
