@@ -64,6 +64,18 @@ endif()
 # echo "export BOOST_ROOT=/cygdrive/d/tools/boost_1_58_0/boost_1_58_0" >> ~/.bashrc
 # then run source ~/.bashrc to have those environment variable effective immediately
 
+if(LOOKUP_AT_CPU)
+  message("-- LOOKUP_AT_CPu: ${LOOKUP_AT_CPU}")
+else()
+  message("-- LOOKUP_AT_CPU not specified, defaulting to host lookup table at GPU if HAVE_CUDA is defined")
+  set(LOOKUP_AT_CPU "USE_CPU_FOR_LOOKUP_PARAM")
+endif()
+
+if(LOOKUP_AT_CPU MATCHES "^USE_CPU_FOR_LOOKUP_PARAM$")
+  add_definitions(-DUSE_CPU_FOR_LOOKUP_PARAM)
+endif()
+
+
 if(BACKEND)
   message("-- BACKEND: ${BACKEND}")
 else()
