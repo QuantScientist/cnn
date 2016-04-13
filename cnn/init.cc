@@ -74,7 +74,7 @@ namespace cnn {
         cerr << "Allocating memory...\n";
 		unsigned long num_mb = 512UL;
         mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20), true);
-        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1e7 * sizeof(cnn::real));
+        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 16);
         if (demo)
         {
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));

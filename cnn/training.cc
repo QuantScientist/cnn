@@ -277,7 +277,7 @@ void RmsPropTrainer::compute_gradient_norm(
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
             gpu::l2_norm_reducer(p->grads_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, v_norm + pi, true, false);
 #else
-            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, ptr_gnorm_param + pi, true, false);
+            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, v_norm + pi, true, false);
 #endif
 #else
             cnn::real g2 = (*p->grads[i]).squaredNorm();

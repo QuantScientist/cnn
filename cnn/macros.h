@@ -51,7 +51,7 @@ typedef float real;
 
 /// this is defined if having lookup table parameters stored in CPU, so that large model can still be used
 /// other parameters will be stored on CPU or GPU depending on the build
-#define USE_CPU_FOR_LOOKUP_PARAM
+//#define USE_CPU_FOR_LOOKUP_PARAM
 /// whether to do binary serialization 
 #define BINARY_BOOST
 };
