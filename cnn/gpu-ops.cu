@@ -173,6 +173,16 @@ void sgd_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real* v, 
     accTripletExprKernel << <tb.first, tb.second >> >(n, x, g, v, x, FL2SGDMomentumUpdate(lambda, scale, momentum));
 }
 
+void rmsprop_update(int n, const cnn::real* g, cnn::real* x, cnn::real *r, cnn::real scale, cnn::real lambda, cnn::real rho, cnn::real epsilon, cnn::real grd_squared_norm) {
+    auto tb = SizeToBlockThreadPair(n);
+    /// it may be more efficient to compute in cpu and not do reduce in gpu, but my observation is not 
+    /// that case
+    *r = rho * (*r) + (1 - rho) * grd_squared_norm;
+    cnn::real den = sqrt(*r + epsilon);
+    accBinaryExprKernel << <tb.first, tb.second >> >(n, x, g, x, FL2SGDUpdate(lambda, scale / den));
+    //CUDA_CHECK(cudaFree(sqnorm));
+}
+
 /** followed some examples of using thrust at
 https://github.com/OrangeOwlSolutions/Thrust/blob/master/Calculating_the_norm_of_arrays.cu
 */
@@ -189,34 +199,6 @@ void rmsprop_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real*
     //CUDA_CHECK(cudaFree(sqnorm));
 }
 */
-
-/**
-RMS prop w/ or w/o momentum
-http://climin.readthedocs.org/en/latest/rmsprop.html
-*/
-void rmsprop_smoothing_den(int n, cnn::real rho, const cnn::real *grd_squared_norm, cnn::real *r) 
-{
-    auto tb = SizeToBlockThreadPair(n);
-    //    *r = rho * (*r) + (1 - rho) * grd_squared_norm;
-    //       = *r + (rho - 1) * (*r) + (1 - rho) * grd_squared_norm;
-    accBinaryExprKernel << <tb.first, tb.second >> >(n, r, grd_squared_norm, r, FL2SGDUpdate(rho-1, rho- 1));
-
-}
-
-void clip_gradients(int n, const cnn::real *dense_param_grad_norm,
-    int m, const cnn::real *sparse_param_grad_norm,
-    cnn::real clip_threshold, int samples,
-    cnn::real* gscale)
-{
-    auto tb = SizeToBlockThreadPair(n + m);
-    ker_gradient_scaling << < tb.first, tb.second >> > (n, dense_param_grad_norm, m, sparse_param_grad_norm, clip_threshold, samples, gscale);
-}
-
-/// avoid computing scale outside of GPU, otherwise there is costly communications between CPU and GPUs. 
-void rmsprop_momentum_update(int n, const cnn::real* r, cnn::real* x, const cnn::real* g, cnn::real* v, cnn::real* gscale, cnn::real lambda, cnn::real scale, cnn::real momentum, cnn::real epsilon) {
-    auto tb = SizeToBlockThreadPair(n);
-    accTripletWithOneGlbVariableExprKernel << <tb.first, tb.second >> >(n, r, x, g, v, x, FL2SGDMomentumWithDenUpdate(gscale, lambda, scale, momentum, epsilon));
-}
 
 /// this is a newer code that uses gradient norms computed elsewhere. 
 /// potential speed-up can be achieved to compute all of gradient norms in GPU and then transfer them to
@@ -342,6 +324,23 @@ void logsoftmax(int row, int col, const cnn::real* x0, cnn::real* y)
         &zero, pInputDesc, y));
 
     CHECK_CUDNN(cudnnDestroyTensorDescriptor(pInputDesc));
+    /*
+    old code
+    cudaStream_t t_stream = cudaStreamDefault;
+
+    int N = col;
+    int M = row;
+    cudaEvent_t done = nullptr;
+    cudaEventCreate(&done);
+    /// TO-DO: The N is the number of columns and is also the number of blocks. For small N, it is fine. For very large N, it may slow down computation. 
+    _assignColumnwiseLogSoftmaxOf<cnn::real> << <N, 512, 0, t_stream >> >(x0, y, N, M);
+    
+    cudaEventRecord(done);
+    
+    cudaEventSynchronize(done);
+    
+    cudaEventDestroy(done);
+    */
 }
 
 void logsoftmax_backward(int row, int col, const cnn::real *fx, const cnn::real *dEdf, cnn::real *dEdx)
@@ -356,6 +355,16 @@ void logsoftmax_backward(int row, int col, const cnn::real *fx, const cnn::real 
         &one, pInputDesc, fx, pInputDesc, dEdf,
         &one, pInputDesc, dEdx));
     CHECK_CUDNN(cudnnDestroyTensorDescriptor(pInputDesc));
+    /*
+    old code
+    
+    vexp(row * col, fx, gpu_softmax);
+    vector_sum(row, col, dEdf, grd, true);
+    row_element_multiply_with(1, col, grd, row, col, gpu_softmax);
+
+    auto tb = SizeToBlockThreadPair(col * row);
+    accBinaryExprKernel << <tb.first, tb.second >> >(col * row, dEdf, gpu_softmax, dEdx, FSubtract());
+    */
 }
 
 /** 
@@ -499,10 +508,8 @@ void conv2dnarrow(const cnn::real* kscalar_one, const cnn::real* kscalar_zero,
     const int frow, const int fcol, const cnn::real *fx, 
     const int yrow, const int ycol, cnn::real *fy)
 {
-    // not yet implemented
-    return;
-/*
-    cudnnTensorDescriptor_t pInputDesc;
+    /*
+cudnnTensorDescriptor_t pInputDesc;
     cudnnTensorDescriptor_t pOutputDesc;
     cudnnFilterDescriptor_t pFilterDesc = nullptr;
     cudnnConvolutionDescriptor_t pConvDesc = nullptr;

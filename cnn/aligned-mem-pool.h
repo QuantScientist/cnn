@@ -19,12 +19,14 @@
 
 namespace cnn {
 
+/// use CUDA 6.0 features, use unified memory so that GPU memory content can be 
+/// accessible to CPU, after calling cudaDeviceSynchronize();
 inline void* cnn_mm_malloc(size_t n, size_t align, bool on_cpu_only = false) {
   void* ptr = nullptr;
   if (!on_cpu_only)
   {
 #if HAVE_CUDA
-      CUDA_CHECK(cudaMalloc(&ptr, n));
+      CUDA_CHECK(cudaMallocManaged(&ptr, n));
 #else
       ptr = _mm_malloc(n, align);
 #endif
@@ -100,13 +102,20 @@ class AlignedMemoryPool {
   void* allocate(unsigned long n) {
     auto rounded_n = round_up_align(n);
     if (rounded_n + used > capacity)
-    {
-        std::runtime_error("cannot allocate enough space");
-        return nullptr;
-    }
+      return nullptr;
     void * res = static_cast<char*>(mem)+used;
-    used += rounded_n;
+    used += (unsigned long) rounded_n;
     return res;
+  }
+  // free n byte from the current used memory
+  void* dealocate(unsigned long n) {
+      auto rounded_n = round_up_align(n);
+      if ((long)(used - rounded_n) < 0)
+          used = 0;
+      else
+          used = used - rounded_n;
+      void * res = static_cast<char*>(mem)+used;
+      return res;
   }
   void free() {
     //std::cerr << "freeing " << used << " bytes\n";
@@ -128,6 +137,7 @@ class AlignedMemoryPool {
     else{
 #if HAVE_CUDA
         CUDA_CHECK(cudaMemsetAsync(mem, 0, used));
+        CUDA_CHECK(cudaDeviceSynchronize());
 #else
         std::memset(mem, 0, used);
 #endif
@@ -145,6 +155,7 @@ class AlignedMemoryPool {
       else{
 #if HAVE_CUDA
           CUDA_CHECK(cudaMemsetAsync(mem, 0, capacity));
+          CUDA_CHECK(cudaDeviceSynchronize());
 #else
           std::memset(mem, 0, capacity);
 #endif

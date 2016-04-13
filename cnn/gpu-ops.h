@@ -67,14 +67,8 @@ namespace gpu {
     void sgd_update(int n, const cnn::real* g, cnn::real* x, cnn::real scale, cnn::real lambda);
     void sgd_update(int n, const cnn::real* g, cnn::real* x, cnn::real* scale, cnn::real* lambda);
     void sgd_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real * v, cnn::real scale, cnn::real lambda, cnn::real momentum);
+    void rmsprop_update(int n, const cnn::real* g, cnn::real* x, cnn::real *r, cnn::real scale, cnn::real lambda, cnn::real rho, cnn::real epsilon, cnn::real grd_squared_norm);
     void rmsprop_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real* v, cnn::real *r, cnn::real scale, cnn::real lambda, cnn::real momentum, cnn::real rho, cnn::real epsilon, cnn::real grd_squared_norm);
-
-    void rmsprop_smoothing_den(int n, cnn::real rho, const cnn::real *grd_squared_norm, cnn::real *r);
-    void rmsprop_momentum_update(int n, const cnn::real* r, cnn::real* x, const cnn::real* g, cnn::real* v, cnn::real* gscale, cnn::real lambda, cnn::real scale, cnn::real momentum, cnn::real epsilon);
-    void clip_gradients(int n, const cnn::real *dense_param_grad_norm,
-        int m, const cnn::real *sparse_param_grad_norm,
-        cnn::real clip_threshold, int samples,
-        cnn::real* gscale);
 
     void vector_sum(int rows, int cols, const cnn::real * a, cnn::real* c, const bool isColWise);
     void vector_add_const(int rows, int cols, const cnn::real * a, int brow, int bcol, const cnn::real* b, cnn::real * c, bool isColWise);
