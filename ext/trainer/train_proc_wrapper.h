@@ -20,6 +20,31 @@ void prt_model_info(size_t LAYERS, size_t VOCAB_SIZE_SRC, const vector<unsigned>
 }
 
 template<class rnn_t, class TrainProc>
+vector<unsigned> set_dims(variables_map vm)
+{
+    vector<unsigned> dims(5, 0);
+
+    if (vm.count("hidden") == 0)
+        dims[ENCODER_LAYER] = HIDDEN_DIM;
+    else
+        dims[ENCODER_LAYER] = (unsigned)vm["hidden"].as<int>();
+    if (vm.count("embeddingdim") == 0)
+        dims[EMBEDDING_LAYER] = dims[ENCODER_LAYER];
+    else
+        dims[EMBEDDING_LAYER] = (unsigned)vm["embeddingdim"].as<int>();
+    dims[DECODER_LAYER] = dims[ENCODER_LAYER]; /// if not specified, encoder and decoder have the same dimension
+    if (vm.count("align") == 0)
+        dims[ALIGN_LAYER] = ALIGN_DIM;
+    else
+        dims[ALIGN_LAYER] = (unsigned)vm["align"].as<int>();
+    if (vm.count("intentiondim") == 0)
+        dims[INTENTION_LAYER] = HIDDEN_DIM;
+    else
+        dims[INTENTION_LAYER] = (unsigned)vm["intentiondim"].as<int>();
+    return dims;
+}
+
+template<class rnn_t, class TrainProc>
 Trainer* select_trainer(variables_map vm, Model* model)
 {
     Trainer* sgd = nullptr;
@@ -63,7 +88,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     typedef pair<Sentence, Sentence> SentencePair;
     Corpus training, devel, testcorpus;
     string line;
-    cnn::real largest_dev_cost = 9e+99;
+    cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
     TrainProc  * ptrTrainer = nullptr;
 
     if (vm.count("readdict"))
@@ -171,29 +196,14 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
 
     cerr << "%% Using " << flavour << " recurrent units" << endl;
 
-    std::vector<unsigned> dims;
-    dims.resize(4);
-    if (!vm.count("hidden"))
-        dims[ENCODER_LAYER] = HIDDEN_DIM;
-    else
-        dims[ENCODER_LAYER] = (unsigned)vm["hidden"].as<int>();
-    dims[DECODER_LAYER] = dims[ENCODER_LAYER]; /// if not specified, encoder and decoder have the same dimension
-
-    if (!vm.count("align"))
-        dims[ALIGN_LAYER] = ALIGN_DIM;
-    else
-        dims[ALIGN_LAYER] = (unsigned)vm["align"].as<int>();
-    if (!vm.count("intentiondim"))
-        dims[INTENTION_LAYER] = HIDDEN_DIM;
-    else
-        dims[INTENTION_LAYER] = (unsigned)vm["intentiondim"].as<int>();
-
+    std::vector<unsigned> dims = set_dims<rnn_t, TrainProc>(vm);
 
     std::vector<unsigned int> layers;
-    layers.resize(4, LAYERS);
+    layers.resize(5, LAYERS);
     if (!vm.count("intentionlayers"))
         layers[INTENTION_LAYER] = vm["intentionlayers"].as<size_t>();
     rnn_t hred(model, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
+
     prt_model_info<rnn_t, TrainProc>(LAYERS, VOCAB_SIZE_SRC, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
 
     /// read word class information
@@ -203,7 +213,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     }
 
     /// read embedding if specified
-    if (vm["embeddingfn"].as<string>().size() > 0)
+    if (vm.count("embeddingfn") > 0)
     {
         map<int, vector<cnn::real>> vWordEmbedding;
         string emb_filename = vm["embeddingfn"].as<string>();
@@ -216,19 +226,14 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     if (vm.count("initialise"))
     {
         string fname = vm["initialise"].as<string>();
-        ifstream in(fname, ifstream::in);
-        if (in.is_open())
-        {
-            boost::archive::text_iarchive ia(in);
-            ia >> model;
-        }
+        load_cnn_model(fname, &model);
     }
 
     ptrTrainer = new TrainProc();
 
     if (vm["pretrain"].as<cnn::real>() > 0)
     {
-        ptrTrainer->supervised_pretrain(model, hred, training, devel, *sgd, fname, vm["pretrain"].as<cnn::real>(), 1);
+      ptrTrainer->supervised_pretrain(model, hred, training, devel, *sgd, fname, vm["pretrain"].as<cnn::real>(), 1, false, false);
         delete sgd;
 
         /// reopen sgd
@@ -254,8 +259,8 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         // a mirrow of the agent to generate decoding results so that their results can be evaluated
         // this is not efficient implementation, better way is to share model parameters
         int n_reinforce_train = vm["num_reinforce_train"].as<int>();
-        cnn::real largest_cost = 9e+99;
-        ptrTrainer->reset_smoothed_ppl();
+        cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
+        reset_smoothed_ppl(ptrTrainer->ppl_hist);
         for (size_t k_reinforce = 0; k_reinforce <= n_reinforce_train; k_reinforce++)
         {
             Model model_mirrow;
@@ -263,10 +268,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             if (vm.count("parameters") > 0 && k_reinforce == 0) {
                 fname = vm["parameters"].as<string>();
 
-                ofstream out(fname, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+                save_cnn_model(fname, &model); 
             }
             else if (vm.count("initialise") > 0){
                 fname = vm["initialise"].as<string>();
@@ -274,12 +276,8 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             else
                 throw("need to specify either parameters or initialise model file name");
             rnn_t hred_agent_mirrow(model_mirrow, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
-            ifstream in(fname, ifstream::in);
-            if (in.is_open())
-            {
-                boost::archive::text_iarchive ia(in);
-                ia >> model_mirrow;
-            }
+
+            load_cnn_model(fname, &model_mirrow);
 
             cnn::real threshold_prob;
             threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
@@ -291,12 +289,11 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {   // split data into nparts and train
         training.clear();
-        ptrTrainer->split_data_batch_train(vm["train"].as<string>(), model, hred, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), vm["epochsize"].as<int>(), vm["segmental_training"].as<bool>(), vm["do_gradient_check"].as<bool>(),
-            vm["padding"].as<bool>());
+        ptrTrainer->split_data_batch_train(vm["train"].as<string>(), model, hred, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), vm["epochsize"].as<int>(), vm["segmental_training"].as<bool>(), vm["do_gradient_check"].as<bool>(), vm["padding"].as<bool>());
     }
     else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
-        ptrTrainer->batch_train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), largest_dev_cost, vm["segmental_training"].as<bool>(), true, vm["do_gradient_check"].as<bool>(), true, false, kSRC_EOS);
+        ptrTrainer->batch_train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), largest_dev_cost, vm["segmental_training"].as<bool>(), true, vm["do_gradient_check"].as<bool>(), true, vm["padding"].as<bool>(), kSRC_EOS);
     }
     else if (!vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
@@ -456,23 +453,7 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
 
     cerr << "%% Using " << flavour << " recurrent units" << endl;
 
-    std::vector<unsigned> dims;
-    dims.resize(4);
-    if (!vm.count("hidden"))
-        dims[ENCODER_LAYER] = HIDDEN_DIM;
-    else
-        dims[ENCODER_LAYER] = (unsigned)vm["hidden"].as<int>();
-    dims[DECODER_LAYER] = dims[ENCODER_LAYER]; /// if not specified, encoder and decoder have the same dimension
-
-    if (!vm.count("align"))
-        dims[ALIGN_LAYER] = ALIGN_DIM;
-    else
-        dims[ALIGN_LAYER] = (unsigned)vm["align"].as<int>();
-    if (!vm.count("intentiondim"))
-        dims[INTENTION_LAYER] = HIDDEN_DIM;
-    else
-        dims[INTENTION_LAYER] = (unsigned)vm["intentiondim"].as<int>();
-
+    std::vector<unsigned> dims = set_dims<rnn_t, TrainProc>(vm);
 
     std::vector<unsigned int> layers;
     layers.resize(4, LAYERS);
@@ -495,12 +476,8 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
     if (vm.count("initialise"))
     {
         string fname = vm["initialise"].as<string>();
-        ifstream in(fname, ifstream::in);
-        if (in.is_open())
-        {
-            boost::archive::text_iarchive ia(in);
-            ia >> model;
-        }
+
+        load_cnn_model(fname, &model);
     }
 
     ptrTrainer = new TrainProc();
@@ -527,10 +504,7 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
             if (vm.count("parameters") > 0 && k_reinforce == 0) {
                 fname = vm["parameters"].as<string>();
 
-                ofstream out(fname, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+                save_cnn_model(fname, &model); 
             }
             else if (vm.count("initialise") > 0){
                 fname = vm["initialise"].as<string>();
@@ -538,12 +512,7 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
             else
                 throw("need to specify either parameters or initialise model file name");
             rnn_t hred_agent_mirrow(model_mirrow, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, 0, vm["scale"].as<cnn::real>());
-            ifstream in(fname, ifstream::in);
-            if (in.is_open())
-            {
-                boost::archive::text_iarchive ia(in);
-                ia >> model_mirrow;
-            }
+            load_cnn_model(fname, &model_mirrow);
 
             cnn::real threshold_prob;
             threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
@@ -593,7 +562,7 @@ int clustering_main_body(variables_map vm)
     Corpus training, devel, testcorpus;
     string line;
     cnn::real largest_dev_cost = 9e+99;
-    TrainProc  * ptrTrainer = nullptr;
+    TrainProc  * ptrTrainer = new TrainProc();
 
     if (vm.count("readdict"))
     {
@@ -611,6 +580,18 @@ int clustering_main_body(variables_map vm)
         sd.Freeze();
     }
 
+    if (vm.count("get_tfidf") > 0)
+    {
+        if (training.size() == 0)
+        {
+            cerr << "Reading training data from " << vm["train"].as<string>() << "...\n";
+            training = read_corpus(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["mbsize"].as<int>(), false,
+                vm.count("charlevel") > 0);
+            sd.Freeze(); // no new word types allowed
+        }
+        ptrTrainer->get_idf(vm, training, sd);
+    }
+    
     if ((vm.count("train") > 0 && vm["epochsize"].as<int>() == -1) || vm.count("writedict") > 0 || vm.count("train-lda") > 0)
     {
         cerr << "Reading training data from " << vm["train"].as<string>() << "...\n";
@@ -876,23 +857,7 @@ int tuple_main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_addi
 
     cerr << "%% Using " << flavour << " recurrent units" << endl;
 
-    std::vector<unsigned> dims;
-    dims.resize(4);
-    if (!vm.count("hidden"))
-        dims[ENCODER_LAYER] = HIDDEN_DIM;
-    else
-        dims[ENCODER_LAYER] = (unsigned)vm["hidden"].as<int>();
-    dims[DECODER_LAYER] = dims[ENCODER_LAYER]; /// if not specified, encoder and decoder have the same dimension
-
-    if (!vm.count("align"))
-        dims[ALIGN_LAYER] = ALIGN_DIM;
-    else
-        dims[ALIGN_LAYER] = (unsigned)vm["align"].as<int>();
-    if (!vm.count("intentiondim"))
-        dims[INTENTION_LAYER] = HIDDEN_DIM;
-    else
-        dims[INTENTION_LAYER] = (unsigned)vm["intentiondim"].as<int>();
-
+    std::vector<unsigned> dims = set_dims<rnn_t, TrainProc>(vm);
 
     std::vector<unsigned int> layers;
     layers.resize(4, LAYERS);
@@ -904,12 +869,7 @@ int tuple_main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_addi
     if (vm.count("initialise"))
     {
         string fname = vm["initialise"].as<string>();
-        ifstream in(fname, ifstream::in);
-        if (in.is_open())
-        {
-            boost::archive::text_iarchive ia(in);
-            ia >> model;
-        }
+        load_cnn_model(fname, &model);
     }
 
     ptrTrainer = new TrainProc();

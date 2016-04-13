@@ -129,9 +129,13 @@ vector<vector<Expression>> pack_obs_uttfirst(FCorpusPointers raw, unsigned mbsiz
     return ret;
 }
 
-PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol)
+/**
+@param padding_to_the_back: true if padding is to the back of the input sequence; false if padding is to the front of the sequence
+*/
+PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol, const std::vector<bool>& padding_to_the_back)
 {
     PDialogue res;
+    assert(padding_to_the_back.size() == 2 || padding_to_the_back.size() == 1);
 
     for (auto& t : v_diag)
     {
@@ -139,8 +143,8 @@ PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol)
         int max_tgt = -1;
         for (auto &sp : t)
         {
-            max_src = std::max<int>(sp.first.size(), max_src);
-            max_tgt = std::max<int>(sp.second.size(), max_tgt);
+            max_src = std::max<int>(sp.first.size(), max_src);  /// max source side length
+            max_tgt = std::max<int>(sp.second.size(), max_tgt); /// max target side length
         }
 
         PTurn i_turn;
@@ -148,12 +152,49 @@ PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol)
         {
             Sentence src(max_src, padding_symbol);
             Sentence tgt(max_tgt, padding_symbol);
-            std::copy_n(t[p].first.begin(), t[p].first.size(), src.begin());
-            std::copy_n(t[p].second.begin(), t[p].second.size(), tgt.begin());
+
+            bool padding_back = padding_to_the_back[0];
+            if (padding_back)
+                std::copy_n(t[p].first.begin(), t[p].first.size(), src.begin());
+            else
+                std::copy_n(t[p].first.begin(), t[p].first.size(), src.end() - t[p].first.size());
+
+            padding_back = (padding_to_the_back.size() == 2) ? padding_to_the_back[1] : padding_to_the_back[0];
+            if (padding_back)
+                std::copy_n(t[p].second.begin(), t[p].second.size(), tgt.begin());
+            else
+                std::copy_n(t[p].second.begin(), t[p].second.size(), tgt.end() - t[p].second.size());
 
             i_turn.push_back(make_pair(src, tgt));
         }
         res.push_back(i_turn);
+    }
+
+    return res;
+}
+
+/**
+@param padding_to_the_back: true if padding is to the back of the input sequence; false if padding is to the front of the sequence
+*/
+Sentences padding_with_eos(const Sentences& v_sent, int padding_symbol, bool  padding_to_the_back)
+{
+    Sentences res;
+
+    int max_src = -1;
+    for (auto &sp : v_sent)
+    {
+        max_src = std::max<int>(sp.size(), max_src);  /// max source side length
+    }
+
+    for (auto& s : v_sent)
+    {
+        Sentence src(max_src, padding_symbol);
+
+        if (padding_to_the_back)
+            std::copy_n(s.begin(), s.size(), src.begin());
+        else
+            std::copy_n(s.begin(), s.size(), src.end() - s.size());
+        res.push_back(src);
     }
 
     return res;
@@ -1331,6 +1372,7 @@ string builder_flavour(variables_map vm)
 {
     string flavour = "rnn";
     if (vm.count("lstm"))	flavour = "lstm";
+    else if (vm.count("rnn_elu"))	flavour = "rnn_elu";
     else if (vm.count("gru"))	flavour = "gru";
     else if (vm.count("dglstm"))	flavour = "dglstm";
     else if (vm.count("dglstm-dnn")) flavour = "dnn";
@@ -1348,4 +1390,52 @@ vector<int> remove_first_and_last(const vector<int>& rep)
     /// remove <s> and </s>
     std::copy(rep.begin() + 1, rep.end() - 1, trimedrep.begin());
     return trimedrep;
+}
+
+void DataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size)
+{
+    string line;
+
+    m_Corpus.clear();
+
+    Dialogue diag;
+    string prv_diagid = "-1";
+    int lc = 0, stoks = 0, ttoks = 0;
+
+    long iln = 0;
+    while (getline(m_ifs, line) && iln < part_size) {
+        trim_left(line);
+        trim_right(line);
+        if (line.length() == 0)
+            break;
+        ++lc;
+        Sentence source, target;
+        string diagid;
+
+        diagid = MultiTurnsReadSentencePair(line, &source, &sd, &target, &sd, false, kSRC_SOS, kSRC_EOS, false);
+        if (diagid == "")
+            continue;
+
+        if (diagid != prv_diagid)
+        {
+            if (diag.size() > 0)
+                m_Corpus.push_back(diag);
+            diag.clear();
+            prv_diagid = diagid;
+        }
+        diag.push_back(SentencePair(source, target));
+        stoks += source.size();
+        ttoks += target.size();
+
+        if ((source.front() != kSRC_SOS && source.back() != kSRC_EOS)) {
+            cerr << "Sentence in " << lc << " didn't start or end with <s>, </s>\n";
+            abort();
+        }
+
+        iln++;
+    }
+
+    if (diag.size() > 0)
+        m_Corpus.push_back(diag);
+    cerr << "from corpus " << m_Filename << ": " << lc << " lines, " << stoks << " & " << ttoks << " tokens (s & t), " << sd.size() << " & " << sd.size() << " types\n";
 }

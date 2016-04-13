@@ -10,6 +10,7 @@
 #include "cnn/lstm.h"
 #include "cnn/dglstm.h"
 #include "cnn/dict.h"
+#include "cnn/model.h"
 #include "cnn/expr.h"
 #include "cnn/cnn-helper.h"
 #include "ext/dialogue/attention_with_intention.h"
@@ -17,6 +18,8 @@
 #include "ext/ngram/ngram.h"
 #include "cnn/data-util.h"
 #include "cnn/grad-check.h"
+#include "cnn/metric-util.h"
+#include "ext/trainer/eval_proc.h"
 
 #include <iostream>
 #include <fstream>
@@ -32,6 +35,8 @@
 #include <boost/archive/text_wiarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_woarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/codecvt_null.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/variables_map.hpp>
@@ -57,41 +62,98 @@ using namespace boost::program_options;
 
 #define LEVENSHTEIN_THRESHOLD 5
 
-unsigned LAYERS = 2;
-unsigned HIDDEN_DIM = 50;  // 1024
-unsigned ALIGN_DIM = 25;  // 1024
-unsigned VOCAB_SIZE_SRC = 0;
-unsigned VOCAB_SIZE_TGT = 0;
-long nparallel = -1;
-long mbsize = -1;
-size_t g_train_on_turns = 1; 
+extern unsigned LAYERS ;
+extern unsigned HIDDEN_DIM;  // 1024
+extern unsigned ALIGN_DIM ;  // 1024
+extern unsigned VOCAB_SIZE_SRC ;
+extern unsigned VOCAB_SIZE_TGT ;
+extern long nparallel;
+extern long mbsize;
+extern size_t g_train_on_turns ;
 
-cnn::Dict sd;
-cnn::Dict td;
-cnn::stId2String<string> id2str;
+extern cnn::Dict sd;
+extern cnn::Dict td;
+extern cnn::stId2String<string> id2str;
 
-int kSRC_SOS;
-int kSRC_EOS;
-int kTGT_SOS;
-int kTGT_EOS;
-int verbose;
-int beam_search_decode;
-cnn::real lambda = 1e-6;
-int repnumber;
+extern int kSRC_SOS;
+extern int kSRC_EOS;
+extern int kTGT_SOS;
+extern int kTGT_EOS;
+extern int verbose;
+extern int beam_search_decode;
+extern cnn::real lambda; // = 1e-6;
+extern int repnumber;
 
-Sentence prv_response;
+extern Sentence prv_response;
 
-NumTurn2DialogId training_numturn2did;
-NumTurn2DialogId devel_numturn2did;
-NumTurn2DialogId test_numturn2did;
+extern NumTurn2DialogId training_numturn2did;
+extern NumTurn2DialogId devel_numturn2did;
+extern NumTurn2DialogId test_numturn2did;
+
+void reset_smoothed_ppl(vector<cnn::real>& ppl_hist);
+cnn::real smoothed_ppl(cnn::real curPPL, vector<cnn::real>& ppl_hist);
+
+#define MAX_NBR_TRUNS 200000
+struct TrainingScores{
+public:
+    long swords; /// source side number of words
+    long twords; /// target side number of words
+    int training_score_current_location;
+    int training_score_buf_size;
+    cnn::real *training_scores;
+
+    cnn::real dloss; 
+
+public:
+    TrainingScores(int bufsize) : training_score_buf_size(bufsize) {
+        training_scores = (cnn::real*) cnn_mm_malloc(training_score_buf_size * sizeof(cnn::real), CNN_ALIGN);
+        training_score_current_location = 0;
+        swords = 0;
+        twords = 0;
+    }
+    ~TrainingScores()
+    {
+        cnn_mm_free(training_scores);
+    }
+
+    void reset()
+    {
+        swords = 0;
+        twords = 0;
+        training_score_current_location = 0;
+    }
+
+    cnn::real compute_score()
+    {
+        if (training_score_current_location > MAX_NBR_TRUNS - 1)
+            std::runtime_error("TrainingScore out of memory");
+
+        dloss = 0;
+        vector<cnn::real> raw_score = as_vector(training_score_current_location, training_scores); 
+        for (auto& p : raw_score)
+            dloss += p;
+        return dloss;
+    }
+};
 
 /**
 The higher level training process
 */
 template <class Proc>
 class TrainProcess{
+private:
+    TrainingScores* training_set_scores;
+    TrainingScores* dev_set_scores;
+
 public:
-    TrainProcess(){
+    TrainProcess() {
+        training_set_scores = new TrainingScores(MAX_NBR_TRUNS);
+        dev_set_scores = new TrainingScores(MAX_NBR_TRUNS);
+    }
+    ~TrainProcess()
+    {
+        delete training_set_scores;
+        delete dev_set_scores;
     }
 
     void prt_model_info(size_t LAYERS, size_t VOCAB_SIZE_SRC, const vector<unsigned>& dims, size_t nreplicate, size_t decoder_additiona_input_to, size_t mem_slots, cnn::real scale);
@@ -103,10 +165,19 @@ public:
         );
     void supervised_pretrain(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
-        bool bcharlevel = false, bool nosplitdialogue = false);
+        bool bcharlevel, bool nosplitdialogue);
+
+    /// adaptation using a small adaptation
+    void online_adaptation(Model &model, Proc &am,
+        const Dialogue & training, // user_input_target_response_pair,
+        Trainer &sgd, 
+        const cnn::real& target_ppl, /// the target training ppl
+        int maxepoch,                /// the maximum number of epochs
+        const string & updated_model_fname);
+
     void train(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, int max_epochs, 
-        bool bcharlevel = false, bool nosplitdialogue = false);
+        bool bcharlevel, bool nosplitdialogue);
     void train(Model &model, Proc &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs);
     void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
     void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding);
@@ -129,17 +200,11 @@ public:
     void collect_sample_responses(Proc& am, Corpus &training);
 
     void nosegmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt,
-        cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr);
-    void segmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt,
-        cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, bool resetmodel = false, bool doGradientCheck = false, Trainer* sgd = nullptr);
+        TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr);
+    void segmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
-
-    cnn::real smoothed_ppl(cnn::real curPPL);
-    void reset_smoothed_ppl(){
-        ppl_hist.clear();
-    }
 
 public:
     /// for LDA
@@ -160,7 +225,23 @@ public:
     void hierarchical_ngram_clustering(variables_map vm, const CorpusWithClassId& test, Dict& sd);
     int closest_class_id(vector<nGram>& pnGram, int this_cls, int nclsInEachCluster, const Sentence& obs, cnn::real& score, cnn::real interpolation_wgt);
 
-private:
+public:
+    /// compute tfidf weight for all words from training data
+    /// dictionary or word list is given 
+    /// TF : Term Frequency, which measures how frequently a term occurs in a document.Since every document is different in length, it is possible that a term would appear much more times in long documents than shorter ones.Thus, the term frequency is often divided by the document length(aka.the total number of terms in the document) as a way of normalization :
+    /// TF(t, d) = (Number of times term t appears in a document d) / (Total number of terms in the document).
+    /// IDF : Inverse Document Frequency, which measures how important a term is.While computing TF, all terms are considered equally important.However it is known that certain terms, such as "is", "of", and "that", may appear a lot of times but have little importance.Thus we need to weigh down the frequent terms while scale up the rare ones, by computing the following :
+    /// IDF(t) = log_e(Total number of documents / Number of documents with term t in it).
+    
+    /// compute idf from training corpus, 
+    /// exact tfidf score of a term needs to be computed given a sentence
+    void get_idf(variables_map vm, const Corpus &training, Dict& sd);
+protected:
+//    std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
+    std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
+    /// follwong the same inddex from a dictionary
+
+public:
     vector<cnn::real> ppl_hist;
 
 };
@@ -173,22 +254,15 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     bool segmental_training, const string& score_embedding_fn)
 {
     unsigned lines = 0;
-    cnn::real dloss = 0;
-    cnn::real dchars_s  = 0;
-    cnn::real dchars_t = 0;
 
     ofstream of(out_file);
-
-    unsigned si = devel.size(); /// number of dialgoues in training
 
     Timer iteration("completed in");
 
     /// report BLEU score
     test(model, am, devel, out_file + "bleu", sd);
 
-    cnn::real ddloss = 0;
-    cnn::real ddchars_s = 0;
-    cnn::real ddchars_t = 0;
+    dev_set_scores->reset(); 
 
     {
         vector<bool> vd_selected(devel.size(), false);  /// track if a dialgoue is used
@@ -208,9 +282,9 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
         while (ndutt > 0)
         {
             if (segmental_training)
-                segmental_forward_backward(model, am, vd_dialogues, ndutt, ddloss, ddchars_s, ddchars_t, false);
+                segmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, false);
             else
-                nosegmental_forward_backward(model, am, vd_dialogues, ndutt, ddloss, ddchars_s, ddchars_t, true);
+                nosegmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, true);
 
             id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
             ndutt = id_sel_idx.size();
@@ -225,8 +299,9 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
         }
     }
 
-    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (ddloss / ddchars_t) << " ppl=" << exp(ddloss / ddchars_t) << ' ';
-    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (ddloss / ddchars_t) << " ppl=" << exp(ddloss / ddchars_t) << endl; 
+    dev_set_scores->compute_score();
+    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
+    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
 
     /// if report score in embedding space
     if (score_embedding_fn.size() > 0)
@@ -259,15 +334,15 @@ cnn::real TrainProcess<AM_t>::testPPL(Model &model, AM_t &am, Corpus &devel, Num
 {
     unsigned lines = 0;
 
-    ofstream of(out_file, ios::app);
-
     unsigned si = devel.size(); /// number of dialgoues in training
+    if (si == 0)
+        return LZERO;
+
+    ofstream of(out_file, ios::app);
 
     Timer iteration("completed in");
 
-    cnn::real ddloss = 0;
-    ddchars_s = 0;
-    ddchars_t = 0;
+    dev_set_scores->reset();
 
     vector<bool> vd_selected(devel.size(), false);  /// track if a dialgoue is used
     size_t id_stt_diag_id = 0;
@@ -279,20 +354,20 @@ cnn::real TrainProcess<AM_t>::testPPL(Model &model, AM_t &am, Corpus &devel, Num
     while (ndutt > 0)
     {
         if (segmental_training)
-            segmental_forward_backward(model, am, vd_dialogues, ndutt, ddloss, ddchars_s, ddchars_t, false);
+            segmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, false);
         else
-            nosegmental_forward_backward(model, am, vd_dialogues, ndutt, ddloss, ddchars_s, ddchars_t, true);
+            nosegmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, true);
 
         id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
         ndutt = id_sel_idx.size();
 
     }
-
-    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (ddloss / ddchars_t) << " ppl=" << exp(ddloss / ddchars_t) << ' ';
+    dev_set_scores->compute_score();
+    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
 
     of.close();
 
-    return ddloss;
+    return dev_set_scores->dloss;
 }
 
 /** warning, the test function use the true past response as the context, when measure bleu score
@@ -303,23 +378,12 @@ cnn::real TrainProcess<AM_t>::testPPL(Model &model, AM_t &am, Corpus &devel, Num
 template <class AM_t>
 void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
 {
-    unsigned lines = 0;
-    cnn::real dloss = 0;
-    cnn::real dchars_s = 0;
-    cnn::real dchars_t = 0;
-
     BleuMetric bleuScore;
     bleuScore.Initialize();
 
     ofstream of(out_file);
 
-    unsigned si = devel.size(); /// number of dialgoues in training
-
     Timer iteration("completed in");
-    cnn::real ddloss = 0;
-    cnn::real ddchars_s = 0;
-    cnn::real ddchars_t = 0;
-
 
     for (auto diag : devel){
 
@@ -327,9 +391,10 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
         size_t turn_id = 0;
 
         /// train on two segments of a dialogue
-        ComputationGraph cg;
         vector<int> res;
-        for (auto spair : diag){
+        for (auto spair : diag)
+        {
+            ComputationGraph cg;
 
             SentencePair turn = spair;
             vector<string> sref, srec;
@@ -549,7 +614,6 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
 {
     string shuman;
     ofstream of(out_file);
-    unsigned lines = 0;
 
     int d_idx = 0;
     while (1){
@@ -687,7 +751,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
             }
 
             size_t k = 0;
-            for (auto &p : res)
+            for (auto &q : res)
             {
 
                 sref.clear();
@@ -700,7 +764,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 
                 srec.clear();
                 if (verbose) cout << "res response: ";
-                for (auto p : res[k]){
+                for (auto p : q){
                     if (verbose) cout << sd.Convert(p) << " ";
                     srec.push_back(sd.Convert(p));
                 }
@@ -776,8 +840,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 }
 
 template <class AM_t>
-void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt,
-    cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr)
+void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores* scores, bool resetmodel, int init_turn_id, Trainer* sgd)
 {
     size_t turn_id = init_turn_id;
     size_t i_turns = 0;
@@ -800,7 +863,6 @@ void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PD
             am.build_graph(prv_turn, turn, cg);
         }
 
-        cg.incremental_forward();
         //            CheckGrad(model, cg);
 
         prv_turn = turn;
@@ -808,10 +870,14 @@ void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PD
         i_turns++;
     }
 
-    dloss += as_scalar(cg.get_value(am.s2txent.i));
+    Tensor tv = cg.get_value(am.s2txent.i);
+    TensorTools::PushElementsToMemory(scores->training_score_current_location,
+        scores->training_score_buf_size,
+        scores->training_scores, tv); 
 
-    dchars_s += am.swords;
-    dchars_t += am.twords;
+    scores->swords += am.swords;
+    scores->twords += am.twords;
+
 
     if (sgd != nullptr)
     {
@@ -821,8 +887,7 @@ void TrainProcess<AM_t>::nosegmental_forward_backward(Model &model, AM_t &am, PD
 }
 
 template <class AM_t>
-void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt,
-    cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
     size_t turn_id = 0;
     size_t i_turns = 0;
@@ -848,7 +913,11 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
             am.build_graph(prv_turn, turn, cg);
         }
 
-        if (doGradientCheck)
+        if (verbose) cout << "after graph build" << endl;
+
+        if (doGradientCheck 
+            && turn_id > 3 // do gradient check after burn-in
+            )
             CheckGrad(model, cg);
 
         if (sgd != nullptr)
@@ -863,19 +932,19 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
                 cout << " done update" << endl;
         }
 
-        dloss += as_scalar(cg.get_value(am.s2txent.i));
-        if (verbose)
-            cout << "dloss " << dloss << endl;
-    
-        dchars_s += am.swords;
-        dchars_t += am.twords;
+        Tensor tv = cg.get_value(am.s2txent.i);
+        TensorTools::PushElementsToMemory(scores->training_score_current_location,
+            scores->training_score_buf_size,
+            scores->training_scores,
+            tv);
+
+        scores->swords += am.swords;
+        scores->twords += am.twords;
 
         prv_turn = turn;
         turn_id++;
         i_turns++;
-
     }
-
 }
 
 /**
@@ -895,12 +964,8 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model); 
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -911,7 +976,6 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
         cnn::real dloss = 0;
         cnn::real dchars_s = 0;
         cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
 
         for (unsigned iter = 0; iter < report_every_i;) {
 
@@ -970,13 +1034,11 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
                 id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, devel_numturn2did);
                 ndutt = id_sel_idx.size();
             }
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < largest_cost) {
                 largest_cost = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+
+                save_cnn_model(out_file, &model); 
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -1000,6 +1062,8 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
     bool b_do_padding, int kEOS /// for padding if so use kEOS as the padding symbol
     )
 {
+    if (verbose)
+        cout << "batch_train: "; 
     unsigned report_every_i = 50;
     unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
@@ -1009,9 +1073,9 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
-    reset_smoothed_ppl();
+    if (b_inside_logic) 
+        reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1028,10 +1092,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
            (!sgd_update_epochs && si < training.size()))  /// run one pass of the data
     {
         Timer iteration("completed in");
-        cnn::real dloss = 0;
-        cnn::real dchars_s = 0;
-        cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
+        training_set_scores->reset();
 
         PDialogue v_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
 
@@ -1059,7 +1120,6 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             }
 
             Dialogue prv_turn;
-            size_t turn_id = 0;
             vector<int> i_sel_idx = get_same_length_dialogues(training, nparallel, i_stt_diag_id, v_selected, v_dialogues, training_numturn2did);
             size_t nutt = i_sel_idx.size();
             if (nutt == 0)
@@ -1068,7 +1128,9 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             if (b_do_padding)
             {
                 /// padding all input and output in each turn into same length with </s> symbol
-                PDialogue pd = padding_with_eos(v_dialogues, kEOS);
+                /// padding </s> to the front for source side
+                /// padding </s> to the back for target side
+                PDialogue pd = padding_with_eos(v_dialogues, kEOS, { false, true});
                 v_dialogues = pd;
             }
 
@@ -1081,18 +1143,20 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             }
 
             if (segmental_training)
-                segmental_forward_backward(model, am, v_dialogues, nutt, dloss, dchars_s, dchars_t, false, do_gradient_check, &sgd);
+                segmental_forward_backward(model, am, v_dialogues, nutt, training_set_scores, false, do_gradient_check, &sgd);
             else
-                nosegmental_forward_backward(model, am, v_dialogues, nutt, dloss, dchars_s, dchars_t, true, 0, &sgd);
+                nosegmental_forward_backward(model, am, v_dialogues, nutt, training_set_scores, true, 0, &sgd);
 
             si += nutt;
             lines += nutt;
             iter += nutt;
         }
 
+        training_set_scores->compute_score();
+
         sgd.status();
-        iteration.WordsPerSecond(dchars_t + dchars_s);
-        cerr << "\n***Train " << (lines / (cnn::real)training.size()) * 100 << " %100 of epoch[" << sgd.epoch << "] E = " << (dloss / dchars_t) << " ppl=" << exp(dloss / dchars_t) << ' ';
+        iteration.WordsPerSecond(training_set_scores->twords + training_set_scores->swords);
+        cerr << "\n***Train " << (lines / (cnn::real)training.size()) * 100 << " %100 of epoch[" << sgd.epoch << "] E = " << (training_set_scores->dloss / training_set_scores->twords) << " ppl=" << exp(training_set_scores->dloss / training_set_scores->twords) << ' ';
 
 
         vector<SentencePair> vs;
@@ -1114,13 +1178,12 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 
             ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
 
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+
+                save_cnn_model(out_file, &model);
+
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -1138,10 +1201,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             break;
         }
         else{
-            ofstream out(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
     }
 }
@@ -1151,9 +1211,9 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 */
 template <class AM_t>
 void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus &devel,
-    Trainer &sgd, string out_file, int max_epochs, bool bcharlevel = false, bool nosplitdialogue = false)
+    Trainer &sgd, string out_file, int max_epochs, bool bcharlevel, bool nosplitdialogue)
 {
-    cnn::real best = 9e+99;
+    cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
     unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
@@ -1167,12 +1227,9 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model);
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1180,10 +1237,11 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
 
     while (sgd.epoch < max_epochs) {
         Timer iteration("completed in");
+        training_set_scores->reset(); 
+        dev_set_scores->reset();
         cnn::real dloss = 0;
         cnn::real dchars_s = 0;
         cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
 
         for (unsigned iter = 0; iter < report_every_i; ++iter) {
 
@@ -1279,9 +1337,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
         // show score on dev data?
         report++;
         if (floor(sgd.epoch) != prv_epoch || report % dev_every_i_reports == 0 || fmod(lines, (cnn::real)training.size()) == 0.0) {
-            cnn::real ddloss = 0;
-            cnn::real ddchars_s = 0;
-            cnn::real ddchars_t = 0;
+            dev_set_scores->reset();
 
             {
                 vector<bool> vd_selected(devel.size(), false);  /// track if a dialgoue is used
@@ -1300,7 +1356,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
 
                 while (ndutt > 0)
                 {
-                    nosegmental_forward_backward(model, am, vd_dialogues, ndutt, ddloss, ddchars_s, ddchars_t, true);
+                    nosegmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, true);
 
                     id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, devel_numturn2did);
                     ndutt = id_sel_idx.size();
@@ -1314,19 +1370,20 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
                     }
                 }
             }
-            ddloss = smoothed_ppl(ddloss);
+
+            dev_set_scores->compute_score();
+            cnn::real ddloss = smoothed_ppl(dev_set_scores->dloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+
+                save_cnn_model(out_file, &model);
+
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
                 sgd.eta *= 0.5; /// reduce learning rate
             }
-            cerr << "\n***DEV [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (ddloss / ddchars_t) << " ppl=" << exp(ddloss / ddchars_t) << ' ';
+            cerr << "\n***DEV [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
         }
 
         prv_epoch = floor(sgd.epoch);
@@ -1353,12 +1410,9 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model);
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1447,15 +1501,12 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
 
         if (fmod(lines , (cnn::real)training.size()) == 0)
         {
-            cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t));
+	  cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t), ppl_hist);
             if (best > i_ppl)
             {
                 best = i_ppl;
 
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+                save_cnn_model(out_file, &model);
             }
             else
             {
@@ -1485,26 +1536,6 @@ void TrainProcess<AM_t>::collect_sample_responses(AM_t& am, Corpus &training)
     }
 }
 
-/// smooth PPL on three points with 0.9 forgetting factor
-template<class AM_t>
-cnn::real TrainProcess<AM_t>::smoothed_ppl(cnn::real curPPL)
-{
-    if (ppl_hist.size() == 0)
-        ppl_hist.resize(3, curPPL);
-    ppl_hist.push_back(curPPL);
-    if (ppl_hist.size() > 3)
-        ppl_hist.erase(ppl_hist.begin());
-
-    cnn::real finPPL = 0;
-    size_t k = 0;
-    for (auto p : ppl_hist)
-    {
-        finPPL += p;
-        k++;
-    }
-    return finPPL/k;
-}
-
 /**
 overly pre-train models on small subset of the data 
 */
@@ -1513,13 +1544,13 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
     bool bcharlevel = false, bool nosplitdialogue = false)
 {
-    cnn::real best = 9e+99;
+    cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
     unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
     boost::mt19937 rng;                 // produces randomness out of thin air
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     size_t sample_step = 100;
     size_t maxepoch = sample_step * 10; /// no point of using more than 100 epochs, which correspond to use full data with 10 epochs for pre-train
@@ -1538,10 +1569,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     unsigned lines = 0;
     int epoch = 0;
 
-    ofstream out(out_file, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-    oa << model;
-    out.close();
+    save_cnn_model(out_file, &model);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -1646,7 +1674,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
 
         prv_epoch = floor(sgd.epoch);
 
-        cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t));
+        cnn::real i_ppl = smoothed_ppl(exp(dloss / dchars_t), ppl_hist);
         if (best > i_ppl)
         {
             best = i_ppl;
@@ -1663,19 +1691,69 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
         }
     }
 
-    ofstream out2(out_file, ofstream::out);
-    boost::archive::text_oarchive oa2(out2);
-    oa2 << model;
-    out2.close();
+    save_cnn_model(out_file, &model);
 
-    ofstream out3(out_file + ".pretrained", ofstream::out);
-    boost::archive::text_oarchive oa3(out3);
-    oa3 << model;
-    out3.close();
+    save_cnn_model(out_file + ".pretrained", &model); 
 
 }
 
-/** 
+/**
+online adaptation of an existing model
+using only one sentence pair usually
+
+in contrast, offline adaptation needs a corpus 
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::online_adaptation(Model &model, AM_t &am, 
+    const Dialogue & training, // user_input_target_response_pair,
+    Trainer &sgd, const cnn::real& target_ppl,
+    int maxepoch , 
+    const string & updated_model_fname)
+{
+    cnn::real best = 9e+99;
+    PDialogue ptraining;
+    for (auto p : training)
+    {
+        PTurn pt(1);
+        pt[0] = p;
+
+        ptraining.push_back(pt);
+    }
+
+    while (best > target_ppl && sgd.epoch < maxepoch) {
+        Timer iteration("completed in");
+        training_set_scores->reset();
+
+        segmental_forward_backward(model, am, ptraining, 1, training_set_scores, false, false, &sgd);
+
+        sgd.status();
+        training_set_scores->compute_score();
+
+        cnn::real i_ppl = exp(training_set_scores->dloss / training_set_scores->twords);
+        cerr << "\n***Train epoch[" << sgd.epoch << "] E = " << (training_set_scores->dloss / training_set_scores->twords) << " ppl=" << i_ppl << ' ';
+
+        if (best > i_ppl)
+        {
+            best = i_ppl;
+        }
+        else
+        {
+            sgd.eta0 *= 0.5;
+            sgd.eta *= 0.5;
+        }
+        if (sgd.eta < 1e-10)
+        {
+            cerr << "SGD stepsize is too small to update models" << endl;
+            break;
+        }
+        sgd.update_epoch();
+    }
+
+    if (updated_model_fname.size() > 0)
+        save_cnn_model(updated_model_fname, &model);
+}
+
+/**
 since the tool loads data into memory and that can cause memory exhaustion, this function do sampling of data for each epoch.
 */
 template <class AM_t>
@@ -1684,64 +1762,121 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     int max_epochs, int nparallel, int epochsize, bool segmental_training,
     bool do_gradient_check, bool do_padding)
 {
-    cnn::real largest_cost = 9e+99;
-    cnn::real largest_dev_cost = 9e+99;
+    cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
+    cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
 
-    ifstream ifs(train_filename);
+    reset_smoothed_ppl(ppl_hist);
+
+    DataReader dr(train_filename);
     int trial = 0;
-    while(sgd.epoch < max_epochs)
+    dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
+    dr.join();
+    
+    Corpus training = dr.corpus();
+    training_numturn2did = get_numturn2dialid(training);
+
+    while (sgd.epoch < max_epochs)
     {
-        cerr << "Reading training data from " << train_filename << "...\n";
-        Corpus training = read_corpus(ifs, sd, kSRC_SOS, kSRC_EOS, epochsize);
-        training_numturn2did = get_numturn2dialid(training);
+        Timer this_epoch("this epoch completed in");
 
-        if (ifs.eof() || training.size() == 0)
-        {
-            ifs.close();
-            ifs.open(train_filename); 
-            
-            if (training.size() == 0)
-            {
-                continue;
-            }
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
-
-            sgd.update_epoch();
-
-            cnn::real ddloss, ddchars_s, ddchars_t;
-            ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
-
-            ddloss = smoothed_ppl(ddloss);
-            if (ddloss < largest_dev_cost) {
-                /// save the model with the best performance on the dev set
-                largest_dev_cost = ddloss;
-
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
-            }
-            else{
-                sgd.eta0 *= 0.5; /// reduce learning rate
-                sgd.eta *= 0.5; /// reduce learning rate
-            }
-        }
+        dr.detach();
+        dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
 
         batch_train(model, am, training, devel, sgd, out_file, 1, nparallel, largest_cost, segmental_training, false, do_gradient_check, false, do_padding, kSRC_EOS);
 
-        if (fmod(trial , 10) == 0)
+        dr.join(); /// synchroze data thread and main thread
+        training = dr.corpus();
+        training_numturn2did = get_numturn2dialid(training);
+
+        if (training.size() == 0)
         {
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            dr.restart(); 
+            dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
+            dr.join(); /// make sure data is completely read
+            training = dr.corpus();  /// copy the data from data thread to the data to be used in the main thread
+            training_numturn2did = get_numturn2dialid(training);
+//#define DEBUG
+#ifndef DEBUG
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model); 
+#endif
+            sgd.update_epoch();
+
+#ifndef DEBUG
+            if (devel.size() > 0)
+            {
+                cnn::real ddloss, ddchars_s, ddchars_t;
+                ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
+
+                ddloss = smoothed_ppl(ddloss, ppl_hist);
+                if (ddloss < largest_dev_cost) {
+                    /// save the model with the best performance on the dev set
+                    largest_dev_cost = ddloss;
+
+                    save_cnn_model(out_file, &model); 
+                }
+                else{
+                    sgd.eta0 *= 0.5; /// reduce learning rate
+                    sgd.eta *= 0.5; /// reduce learning rate
+                }
+            }
+#endif
         }
+
         trial++;
     }
-    ifs.close();
+}
+
+template <class AM_t>
+void TrainProcess<AM_t>::get_idf(variables_map vm, const Corpus &training, Dict& sd)
+{
+    long l_total_terms = 0;
+    long l_total_nb_documents = 0;
+    tWordid2TfIdf idf;
+
+    for (auto & d : training)
+    {
+        for (auto &sp : d)
+        {
+            Sentence user = sp.first;
+            Sentence resp = sp.second;
+
+            l_total_terms += user.size();
+            l_total_terms += resp.size();
+
+            l_total_nb_documents += 2;
+
+            tWordid2TfIdf occurence; 
+            for (auto& u : user)
+            {
+                occurence[u] = 1;
+            }
+            for (auto& u : resp)
+            {
+                occurence[u] = 1;
+            }
+
+            tWordid2TfIdf::iterator iter;
+            for (iter = occurence.begin(); iter != occurence.end(); iter++)
+                idf[iter->first] += 1;
+        }
+    }
+
+    tWordid2TfIdf::iterator it;
+    for (it = idf.begin(); it != idf.end(); it++)
+    {
+        cnn::real idf_val = it->second;
+        idf_val = log(l_total_nb_documents / idf_val);
+
+        int id = it->first; 
+        cnn::real idfscore = idf_val;
+        m_map_idf[sd.Convert(id)] = idfscore;
+    }
+
+    string fname = vm["get_tfidf"].as<string>();
+    ofstream on(fname);
+    boost::archive::text_oarchive oa(on);
+    oa << m_map_idf;
+
 }
 
 /**
@@ -2313,6 +2448,9 @@ public:
         Trainer &sgd, string out_file, int max_epochs, int nparallel, cnn::real &best, bool segmental_training,
         bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic);
 
+public:
+    vector<cnn::real> ppl_hist;
+
 };
 
 
@@ -2346,10 +2484,7 @@ void ClassificationTrainProcess<AM_t>::split_data_batch_train(string train_filen
             {
                 continue;
             }
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch),&model);
 
             sgd.update_epoch();
         }
@@ -2358,10 +2493,7 @@ void ClassificationTrainProcess<AM_t>::split_data_batch_train(string train_filen
 
         if (fmod(trial, 50) == 0)
         {
-            ofstream out(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
         trial++;
     }
@@ -2387,7 +2519,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
     unsigned lines = 0;
     int epoch = 0;
 
-    reset_smoothed_ppl();
+    reset_smoothed_ppl(ppl_hist);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -2515,13 +2647,10 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
                     }
                 }
             }
-            ddloss = smoothed_ppl(ddloss);
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
-                ofstream out(out_file, ofstream::out);
-                boost::archive::text_oarchive oa(out);
-                oa << model;
-                out.close();
+                save_cnn_model(out_file, &model);
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -2539,10 +2668,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
             break;
         }
         else{
-            ofstream out(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), ofstream::out);
-            boost::archive::text_oarchive oa(out);
-            oa << model;
-            out.close();
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
     }
 }

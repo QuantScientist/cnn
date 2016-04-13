@@ -82,7 +82,7 @@ vector<Expression> embedding(unsigned & slen, const vector<vector<int>>& source,
 
     Expression i_x_t;
 
-    for (int t = 0; t < slen; ++t) {
+    for (unsigned int t = 0; t < slen; ++t) {
         vector<Expression> vm;
         for (size_t k = 0; k < nutt; k++)
         {
@@ -98,11 +98,39 @@ vector<Expression> embedding(unsigned & slen, const vector<vector<int>>& source,
     return source_embeddings;
 }
 
+/// source [1..NUTT][1..T] is speaker first and then content from each utterance
+/// return a vector for each time [1..T] and each element has an embedding in matrix for all speakers
+vector<Expression> embedding(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs)
+{
+    size_t nutt = source.size();
+    /// get the maximum length of utternace from all speakers
+    slen = source[0].size();
+    for (auto p : source)
+    {
+        if (slen != p.size())
+            runtime_error("input sentences should have same lengths");
+    }
+
+    std::vector<Expression> source_embeddings;
+
+    Expression i_x_t;
+
+    for (unsigned int t = 0; t < slen; ++t) {
+        vector<unsigned> idx; 
+        for (size_t k = 0; k < nutt; k++)
+            idx.push_back(source[k][t]);
+        Expression i_x_t = lookup(cg, p_cs, idx);
+        source_embeddings.push_back(i_x_t);
+    }
+
+    return source_embeddings;
+}
+
 /// organise data in the following format
 /// [<first sentence> <second sentence> ...]
 /// for example with two sentences with length N1 for the first sentence and length N2 for the second sentence
 /// [v_spk1_time0 v_spk1_time1 ... v_spk1_timeN1 | v_spk2_time0 v_spk2_time1 ... v_spk2_timeN2]
-vector<Expression> embedding_spkfirst(const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, unsigned feat_dim)
+vector<Expression> embedding_spkfirst(const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs)
 {
     size_t nutt = source.size();
 
@@ -217,7 +245,7 @@ vector<Expression> average_embedding(const vector<unsigned>& slen, int featdim, 
     {
         vector<Expression> vm;
         Expression this_src = reshape(vsrc[k], { slen[k] * featdim });
-        int t = 0;
+        unsigned int t = 0;
         while (t < slen[k] * featdim )
         {
             Expression xij = pickrange(this_src, t, t + featdim); 
@@ -460,7 +488,7 @@ vector<Expression> attention_using_bilinear_with_local_attention(vector<Expressi
     {
         slen += p;
         vector<Expression> pweight;
-        for (int k = 0; k < p; k++)
+        for (unsigned int k = 0; k < p; k++)
             pweight.push_back(-(k - position[l]) * (k-position[l]) / (50));  /// D = 10, 2*(sigma/2)^2 = 2*100/4 = 50
         l++;
         v_position_weight.push_back(exp(concatenate(pweight)));
@@ -613,7 +641,7 @@ Expression bidirectional(int slen, const vector<vector<cnn::real>>& source, Comp
         src_bwd[t] = input(cg, { fdim }, &source[t]);
     }
 
-    for (unsigned i = 0; i < slen - 1; ++i)
+    for (int i = 0; i < slen - 1; ++i)
         source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[i], src_bwd[i + 1] })));
     source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[slen - 1], src_bwd[slen - 1] })));
     Expression src = concatenate_cols(source_embeddings);
@@ -719,7 +747,7 @@ void display_value(const Expression &source, ComputationGraph &cg, string what_t
         cout << what_to_say << endl;
     for (unsigned j = 0; j < J; ++j) {
         for (unsigned i = 0; i < I; ++i) {
-            cnn::real v = TensorTools::AccessElement(a, j*I + i);
+            cnn::real v = TensorTools::AccessElement(a, IDX2C(j,i, J)); 
             std::cout << v << ' ';
         }
         std::cout << endl;

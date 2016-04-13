@@ -29,9 +29,53 @@ namespace cnn {
 
 template<class Builder, class Decoder>
 class CxtEncDecModel : public DialogueBuilder<Builder, Decoder>{
-private :
-    Expression i_R;
+	
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+    using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
+    using DialogueBuilder<Builder, Decoder>::start_new_single_instance;
 
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+
+	using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
+
+    using DialogueBuilder<Builder, Decoder>::last_cxt_s;
+	using DialogueBuilder<Builder, Decoder>::i_cxt2dec_w;
+	using DialogueBuilder<Builder, Decoder>::p_cxt2dec_w;
+	using DialogueBuilder<Builder, Decoder>::context;
+	
 public:
     CxtEncDecModel(cnn::Model& model, int vocab_size_src, int vocab_size_tgt, const vector<unsigned int>& layers, const vector<unsigned>& hidden_dims, int hidden_replicates, int decoder_use_additional_input = 0, int mem_slots = 0, cnn::real iscale = 1.0) :
         DialogueBuilder(model, vocab_size_src, vocab_size_tgt, layers, hidden_dims, hidden_replicates, decoder_use_additional_input, mem_slots, iscale)
@@ -109,13 +153,13 @@ public:
         }
 
         last_context_exp.clear();
-        for (const auto &p : last_cxt_s)
+        for (const auto p : last_cxt_s)
         {
             Expression iv;
             if (nutt > 1)
-                iv = input(cg, { (unsigned int)p.size() / nutt, nutt }, &p);
+                iv = reference(cg, { (unsigned int)hidden_dim[INTENTION_LAYER], nutt}, p);
             else
-                iv = input(cg, { (unsigned int)p.size() }, &p);
+                iv = reference(cg, { (unsigned int)hidden_dim[INTENTION_LAYER] }, p);
             last_context_exp.push_back(iv);
         }
 
@@ -256,8 +300,44 @@ public:
 */
 template<class Builder, class Decoder>
 class Seq2SeqEncDecModel : public DialogueBuilder<Builder, Decoder>{
-private:
-    Expression i_R;
+	
+	public:
+	using DialogueBuilder<Builder, Decoder>::layers;
+    using DialogueBuilder<Builder, Decoder>::hidden_dim;
+    using DialogueBuilder<Builder, Decoder>::rep_hidden;
+    using DialogueBuilder<Builder, Decoder>::i_U;
+    using DialogueBuilder<Builder, Decoder>::p_U;
+    using DialogueBuilder<Builder, Decoder>::i_bias;
+    using DialogueBuilder<Builder, Decoder>::i_R;
+    using DialogueBuilder<Builder, Decoder>::v_decoder;
+    using DialogueBuilder<Builder, Decoder>::turnid;
+    using DialogueBuilder<Builder, Decoder>::p_cs;
+    using DialogueBuilder<Builder, Decoder>::v_src;
+    using DialogueBuilder<Builder, Decoder>::src_len;
+    using DialogueBuilder<Builder, Decoder>::zero;
+    using DialogueBuilder<Builder, Decoder>::src;
+    using DialogueBuilder<Builder, Decoder>::save_context;
+	
+	using DialogueBuilder<Builder, Decoder>::nutt;
+	using DialogueBuilder<Builder, Decoder>::i_h0;
+	using DialogueBuilder<Builder, Decoder>::p_h0;
+	using DialogueBuilder<Builder, Decoder>::last_context_exp;
+	using DialogueBuilder<Builder, Decoder>::p_R;
+	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+	using DialogueBuilder<Builder, Decoder>::src_fwd;
+	using DialogueBuilder<Builder, Decoder>::src_words;
+	using DialogueBuilder<Builder, Decoder>::slen;
+	using DialogueBuilder<Builder, Decoder>::decoder;
+	using DialogueBuilder<Builder, Decoder>::v_decoder_context;
+	using DialogueBuilder<Builder, Decoder>::vocab_size;
+	using DialogueBuilder<Builder, Decoder>::tgt_words;
+	
+	using DialogueBuilder<Builder, Decoder>::p_bias;	
+	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
+	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+	
+	using DialogueBuilder<Builder, Decoder>::v_errs;
+	using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
 
 public:
     Seq2SeqEncDecModel(cnn::Model& model, unsigned vocab_size_src, unsigned vocab_size_tgt, const vector<unsigned int>& layers, const vector<unsigned>& hidden_dims, int hidden_replicates, int decoder_use_additional_input = 0, int mem_slots = 0, cnn::real iscale = 1.0) :

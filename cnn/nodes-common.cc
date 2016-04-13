@@ -11,7 +11,7 @@ namespace cnn {
     inline bool LooksLikeVector(const Dim& d) {
         if (d.ndims() == 1) return true;
         if (d.ndims() > 1) {
-            for (int i = 1; i < d.ndims(); ++i)
+            for (unsigned int i = 1; i < d.ndims(); ++i)
             if (d[i] != 1) return false;
         }
         return true;
@@ -20,7 +20,7 @@ namespace cnn {
     inline bool LooksLikeMatrix(const Dim& d) {
         if (d.ndims() == 2) return true;
         if (d.ndims() > 2) {
-            for (int i = 2; i < d.ndims(); ++i)
+            for (unsigned int i = 2; i < d.ndims(); ++i)
             if (d[i] != 1) return false;
         }
         return true;
@@ -274,6 +274,19 @@ Dim Sum::dim_forward(const vector<Dim>& xs) const {
     d.bd = max(xs[i].bd, d.bd);
   }
   return d;
+}
+
+string Reduce::as_string(const vector<string>& arg_names) const {
+    ostringstream s;
+    s << arg_names[0];
+    for (unsigned i = 1; i < arg_names.size(); ++i)
+        s << " + " << arg_names[i];
+    return s.str();
+}
+
+Dim Reduce::dim_forward(const vector<Dim>& xs) const {
+    Dim d = { 1 };
+    return d;
 }
 
 string SumBatches::as_string(const vector<string>& arg_names) const {
@@ -733,14 +746,25 @@ Dim Negate::dim_forward(const vector<Dim>& xs) const {
 }
 
 string Rectify::as_string(const vector<string>& arg_names) const {
-  ostringstream s;
-  s << "ReLU(" << arg_names[0] << ')';
-  return s.str();
+    ostringstream s;
+    s << "ReLU(" << arg_names[0] << ')';
+    return s.str();
 }
 
 Dim Rectify::dim_forward(const vector<Dim>& xs) const {
-  assert(xs.size() == 1);
-  return xs[0];
+    assert(xs.size() == 1);
+    return xs[0];
+}
+
+string ExponentialLinearUnits::as_string(const vector<string>& arg_names) const {
+    ostringstream s;
+    s << "ExponentialLinearUnits(" << arg_names[0] << "), scale = " << scale ;
+    return s.str();
+}
+
+Dim ExponentialLinearUnits::dim_forward(const vector<Dim>& xs) const {
+    assert(xs.size() == 1);
+    return xs[0];
 }
 
 string HuberDistance::as_string(const vector<string>& arg_names) const {

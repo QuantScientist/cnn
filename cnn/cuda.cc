@@ -2,6 +2,7 @@
 
 #include "cnn/cnn.h"
 #include "cnn/cuda.h"
+#include <cudnn.h>
 
 #pragma comment(lib,"cublas.lib")
 #pragma comment(lib,"cudart_static.lib")
@@ -15,7 +16,6 @@ namespace cnn {
 cublasHandle_t cublas_handle;
 cudnnHandle_t cudnn_handle;
 cudnnDataType_t cudnnDataType;
-
 void Initialize_CUDNN()
 {
     cudnn_handle = nullptr;
@@ -24,9 +24,22 @@ void Initialize_CUDNN()
     else if (sizeof(cnn::real) == sizeof(double))
         cudnnDataType = CUDNN_DATA_DOUBLE;
     else
-        throw std::exception("not supported data type");
+        throw std::runtime_error("not supported data type");
 
     CHECK_CUDNN(cudnnCreate(&cudnn_handle));
+}
+
+void Initialize_Consts_And_Store_In_GPU()
+{
+    kSCALAR_ONE_OVER_INT.resize(MEM_PRE_ALLOCATED_CONSTS_NUMBERS);
+    for (int i = 0; i < MEM_PRE_ALLOCATED_CONSTS_NUMBERS; i++)
+    {
+        cnn::real flt = 1./(i+2);
+        cnn::real *flt_val; 
+        CUDA_CHECK(cudaMalloc(&flt_val, sizeof(cnn::real)));
+        CUDA_CHECK(cudaMemcpyAsync(flt_val, &flt, sizeof(cnn::real), cudaMemcpyHostToDevice));
+        kSCALAR_ONE_OVER_INT[i] = flt_val;
+    }
 }
 
 void Free_GPU()
@@ -34,6 +47,7 @@ void Free_GPU()
 #ifdef HAVE_CUDA
     CHECK_CUDNN(cudnnDestroy(cudnn_handle));
     CUBLAS_CHECK(cublasDestroy(cublas_handle));
+
 #endif
 }
 
@@ -65,19 +79,24 @@ void Initialize_GPU(int& argc, char**& argv) {
   }
   cerr << "[cnn] **USING DEVICE: " << selected << endl;
   CUDA_CHECK(cudaSetDevice(selected));
+  device_id = selected;
+
   CUBLAS_CHECK(cublasCreate(&cublas_handle));
   CUBLAS_CHECK(cublasSetPointerMode(cublas_handle, CUBLAS_POINTER_MODE_DEVICE));
-  CUDA_CHECK(cudaMalloc(&kSCALAR_MINUSONE, sizeof(float)));
-  CUDA_CHECK(cudaMalloc(&kSCALAR_ONE, sizeof(float)));
-  CUDA_CHECK(cudaMalloc(&kSCALAR_ZERO, sizeof(float)));
-  float minusone = -1;
-  CUDA_CHECK(cudaMemcpyAsync(kSCALAR_MINUSONE, &minusone, sizeof(float), cudaMemcpyHostToDevice));
-  float one = 1;
-  CUDA_CHECK(cudaMemcpyAsync(kSCALAR_ONE, &one, sizeof(float), cudaMemcpyHostToDevice));
-  float zero = 0;
-  CUDA_CHECK(cudaMemcpyAsync(kSCALAR_ZERO, &zero, sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMalloc(&kSCALAR_MINUSONE, sizeof(cnn::real)));
+  CUDA_CHECK(cudaMalloc(&kSCALAR_ONE, sizeof(cnn::real)));
+  CUDA_CHECK(cudaMalloc(&kSCALAR_ZERO, sizeof(cnn::real)));
+  cnn::real minusone = -1;
+  CUDA_CHECK(cudaMemcpyAsync(kSCALAR_MINUSONE, &minusone, sizeof(cnn::real), cudaMemcpyHostToDevice));
+  cnn::real one = 1;
+  CUDA_CHECK(cudaMemcpyAsync(kSCALAR_ONE, &one, sizeof(cnn::real), cudaMemcpyHostToDevice));
+  cnn::real zero = 0;
+  CUDA_CHECK(cudaMemcpyAsync(kSCALAR_ZERO, &zero, sizeof(cnn::real), cudaMemcpyHostToDevice));
+
+  Initialize_Consts_And_Store_In_GPU();
 
   Initialize_CUDNN();
+
 }
 
 } // namespace cnn

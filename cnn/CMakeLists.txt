@@ -1,6 +1,7 @@
 # ########## cnn library ##########
 # Sources:
 set(cnn_library_SRCS
+    math.cc
     approximator.cc
     dnn.cc
     cnn.cc
@@ -30,10 +31,13 @@ set(cnn_library_SRCS
     dglstm.cc
     treelstm.cc
     metric-util.cc
+    ../ext/trainer/train_proc.cc
+    ../ext/lda/lda.cc
 )
 
 # Headers:
 set(cnn_library_HDRS
+    math.h
     approximator.h
     dnn.h
     aligned-mem-pool.h
@@ -124,10 +128,18 @@ add_library(cnn_shared SHARED ${cnn_library_SRCS} ${cnn_library_HDRS} ${dialogue
 
 if(WITH_CUDA_BACKEND)
   set(CUDA_SEPARABLE_COMPILATION ON)
-  list(APPEND CUDA_NVCC_FLAGS "-gencode;arch=compute_20,code=sm_20;-gencode;arch=compute_30,code=sm_30;-gencode;arch=compute_35,code=sm_35;-gencode;arch=compute_37,code=sm_37;-gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_52,code=sm_52;-gencode;arch=compute_52,code=compute_52;-std=c++11;-O2;-DVERBOSE;")
+  list(APPEND CUDA_NVCC_FLAGS "-gencode;arch=compute_20,code=sm_20;-gencode;arch=compute_30,code=sm_30;-gencode;arch=compute_35,code=sm_35;-gencode;arch=compute_37,code=sm_37;-gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_52,code=sm_52;-gencode;arch=compute_52,code=compute_52;--std=c++11;-DVERBOSE;")
 #--expt-relaxed-constexpr")
   SET(CUDA_PROPAGATE_HOST_FLAGS OFF)
-  cuda_add_library(cnncuda STATIC gpu-ops.cu)
+  if (WIN32 OR WIN64)
+  cuda_add_library(cnncuda STATIC gpu-ops.cu gpu-kernels.cu
+      OPTIONS
+          DEBUG -g;-G;-Xcompiler "/wd4819,/EHsc,/W3,/nologo,/Od,/Zi,/RTC1"; -Xcompiler "/MTd"
+          RELEASE -Xcompiler "/wd4819,/EHsc,/W3,/nologo,/O2,/Zi"; -Xcompiler "/MT"
+  )
+  else()
+    cuda_add_library(cnncuda STATIC gpu-ops.cu gpu-kernels.cu)
+  endif()
 endif(WITH_CUDA_BACKEND)
 
 install(FILES ${cnn_library_HDRS} ${dialogue_library_HDRS} ${trainer_library_HDRS} DESTINATION include/cnn)

@@ -14,6 +14,12 @@ cnn::real* kSCALAR_MINUSONE;
 cnn::real* kSCALAR_ONE;
 cnn::real* kSCALAR_ZERO;
 int n_hgs = 0;
+int device_id = CPUDEVICE;
+
+/// some constants 
+/// [1/2,1/3,1/3, ..., 1/N]
+std::vector<cnn::real*> kSCALAR_ONE_OVER_INT;
+
 
 Node::~Node() {}
 size_t Node::aux_storage_size() const { return 0; }
@@ -105,6 +111,13 @@ VariableIndex ComputationGraph::add_input(const Dim& d, const vector<cnn::real>*
   return new_node_index;
 }
 
+VariableIndex ComputationGraph::add_reference(const Dim& d, const cnn::real* pm) {
+    VariableIndex new_node_index(nodes.size());
+    nodes.push_back(new ReferenceNode(d, pm));
+    set_dim_for_new_node(new_node_index);
+    return new_node_index;
+}
+
 VariableIndex ComputationGraph::add_parameters(Parameters* p) {
   VariableIndex new_node_index(nodes.size());
   ParameterNode* new_node = new ParameterNode(p);
@@ -121,6 +134,7 @@ VariableIndex ComputationGraph::add_const_parameters(Parameters* p) {
   set_dim_for_new_node(new_node_index);
   return new_node_index;
 }
+
 VariableIndex ComputationGraph::add_lookup(LookupParameters* p, const unsigned* pindex) {
   VariableIndex new_node_index(nodes.size());
   LookupNode* new_node = new LookupNode(p, pindex);

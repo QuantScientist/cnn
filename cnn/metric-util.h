@@ -140,10 +140,10 @@ private:
 
         int n = order;
 
-        if (tokens.size() < n + 1)
+        if ((int)tokens.size() < n + 1)
             return counts; 
         
-        for (int i = 0; i < tokens.size() - n; i++)
+        for (int i = 0; i < (int)tokens.size() - n; i++)
         {
             string sb;
             for (int j = 0; j <= n; j++)
