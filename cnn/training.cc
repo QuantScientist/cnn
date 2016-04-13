@@ -235,47 +235,7 @@ void AdadeltaTrainer::update(cnn::real nutt, cnn::real scale) {
   ++updates;
 }
 
-void RmsPropTrainer::update(cnn::real nutt, cnn::real scale) {
-  unsigned pi = 0;
-  if (!shadow_params_allocated) {
-    hg.resize(model->parameters_list().size());
-
-    pi = 0;
-    hlg.resize(model->lookup_parameters_list().size());
-    for (auto p : model->lookup_parameters_list()) {
-      hlg[pi++].resize(p->size());
-    }
-
-    shadow_params_allocated = true;
-  }
-
-  const cnn::real gscale = clip_gradients(nutt);
-  pi = 0;
-  for (auto p : model->parameters_list()) {
-    cnn::real& d2 = hg[pi++];
-    auto reg = (*p->values) * lambda;
-    cnn::real g2 = (*p->g).squaredNorm();
-    d2 = rho * d2 + (1.0 - rho) * g2;
-    *p->values -= ((eta * scale * gscale / sqrt(d2 + epsilon)) * *p->g + reg);
-    p->clear();
-  }
-
-  pi = 0;
-  for (auto p : model->lookup_parameters_list()) {
-    vector<cnn::real>& hlgx = hlg[pi++];
-    for (auto i : p->non_zero_grads) {
-      cnn::real& d2 = hlgx[i];
-      auto reg = (*p->values[i]) * lambda;
-      cnn::real g2 = (*p->grads[i]).squaredNorm();
-      d2 = rho * d2 + (1.0 - rho) * g2;
-      *p->values[i] -= ((eta * scale * gscale  / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
-    }
-    p->clear();
-  }
-  ++updates;
-}
-
-void RmsPropWithMomentumTrainer::compute_gradient_norm(
+void RmsPropTrainer::compute_gradient_norm(
     std::vector<Parameters*> plist, std::vector<cnn::real>& vpgrd_norm,
     std::vector<LookupParameters*> llist, std::vector<cnn::real>& vl_grd_norm)
 {
@@ -299,14 +259,14 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
         runtime_error("cannot allocate space");
     }
 #endif
-    
+
     int pi = 0;
     for (auto p : plist) {
 #if HAVE_CUDA
         gpu::l2_norm_reducer(p->g.d.size(), p->g.v, v_norm + pi, true, false);
 #else
         cnn::real g2 = (*p->g).squaredNorm();
-        *(v_norm+pi) = g2;
+        *(v_norm + pi) = g2;
 #endif
         pi++;
     }
@@ -317,11 +277,11 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
             gpu::l2_norm_reducer(p->grads_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, v_norm + pi, true, false);
 #else
-            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, ptr_gnorm_param+pi, true, false);
+            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, ptr_gnorm_param + pi, true, false);
 #endif
 #else
             cnn::real g2 = (*p->grads[i]).squaredNorm();
-            *(v_norm+pi) = g2;
+            *(v_norm + pi) = g2;
 #endif
             pi++;
         }
@@ -345,6 +305,80 @@ void RmsPropWithMomentumTrainer::compute_gradient_norm(
 #else
     free(v_norm);
 #endif
+}
+
+void RmsPropTrainer::update(cnn::real nutt, cnn::real scale) 
+{
+  unsigned pi = 0;
+  if (!shadow_params_allocated) {
+    hg.resize(model->parameters_list().size());
+
+    pi = 0;
+    hlg.resize(model->lookup_parameters_list().size());
+    for (auto p : model->lookup_parameters_list()) {
+      hlg[pi++].resize(p->size());
+    }
+
+    shadow_params_allocated = true;
+  }
+
+  /// compute norm of gradients
+  vector<cnn::real> vpgrd_norm;
+  vector<cnn::real> vlgrd_norm;
+  compute_gradient_norm(model->parameters_list(), vpgrd_norm, model->lookup_parameters_list(), vlgrd_norm);
+
+  cnn::real gg = 0;
+  for (auto & p : vpgrd_norm)
+      gg += p;
+  for (auto & p : vlgrd_norm)
+      gg += p;
+  gg = sqrt(gg);
+
+  const cnn::real gscale = clip_gradients(nutt, gg);
+
+  pi = 0;
+  for (auto p : model->parameters_list()) {
+    cnn::real& d2 = hg[pi];
+#if HAVE_CUDA
+    gpu::rmsprop_update(p->values.d.size(), p->g.v, p->values.v, &d2, eta * scale * gscale, lambda, rho, epsilon, vpgrd_norm[pi]);
+#else
+    auto reg = (*p->values) * lambda;
+    cnn::real g2 = (*p->g).squaredNorm();
+    d2 = rho * d2 + (1.0 - rho) * g2;
+    *p->values -= ((eta * scale * gscale / sqrt(d2 + epsilon)) * *p->g + reg);
+#endif
+    pi++;
+    p->clear();
+  }
+
+  pi = 0;
+  int li = 0;
+  for (auto p : model->lookup_parameters_list()) {
+    vector<cnn::real>& hlgx = hlg[pi];
+    for (auto i : p->non_zero_grads) {
+        cnn::real& d2 = hlgx[i];
+#if HAVE_CUDA
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+        CUDA_CHECK(cudaMemcpyAsync(p->grads[i].v, p->grads_for_non_zero_grads[i].v, sizeof(cnn::real)*p->grads_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToHost));
+        auto reg = (*p->values[i]) * lambda;
+        cnn::real g2 = vlgrd_norm[li];
+        d2 = rho * d2 + (1.0 - rho) * g2;
+        *p->values[i] -= ((eta * scale * gscale / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
+#else
+        gpu::rmsprop_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, &d2, eta * scale * gscale, lambda, rho, epsilon, vlgrd_norm[li]);
+#endif
+#else
+      auto reg = (*p->values[i]) * lambda;
+      cnn::real g2 = (*p->grads[i]).squaredNorm();
+      d2 = rho * d2 + (1.0 - rho) * g2;
+      *p->values[i] -= ((eta * scale * gscale  / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
+#endif
+      li++;
+    }
+    p->clear();
+    pi++;
+  }
+  ++updates;
 }
 
 void RmsPropWithMomentumTrainer::update(cnn::real nutt, cnn::real scale) {

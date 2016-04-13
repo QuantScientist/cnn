@@ -67,6 +67,7 @@ namespace gpu {
     void sgd_update(int n, const cnn::real* g, cnn::real* x, cnn::real scale, cnn::real lambda);
     void sgd_update(int n, const cnn::real* g, cnn::real* x, cnn::real* scale, cnn::real* lambda);
     void sgd_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real * v, cnn::real scale, cnn::real lambda, cnn::real momentum);
+    void rmsprop_update(int n, const cnn::real* g, cnn::real* x, cnn::real *r, cnn::real scale, cnn::real lambda, cnn::real rho, cnn::real epsilon, cnn::real grd_squared_norm);
     void rmsprop_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real* v, cnn::real *r, cnn::real scale, cnn::real lambda, cnn::real momentum, cnn::real rho, cnn::real epsilon, cnn::real grd_squared_norm);
 
     void vector_sum(int rows, int cols, const cnn::real * a, cnn::real* c, const bool isColWise);
