@@ -75,22 +75,12 @@ set(cnn_library_HDRS
 )
 
 # Headers:
-set(dialogue_library_HDRS
-    ../ext/dialogue/dialogue_process.h
-    ../ext/dialogue/attention_with_intention.h
-    ../ext/dialogue/dialogue.h
-)
-
-# Headers:
 set(trainer_library_HDRS
     ../ext/trainer/train_proc.h
     ../ext/trainer/eval_proc.h
 )
 
-# Ext Headers:
 set(ext_HDRS
-    ../ext/lda/lda.h
-    ../ext/ngram/ngram.h
     ../ext/encdec/encdec.h
 )
 
