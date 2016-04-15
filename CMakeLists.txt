@@ -65,10 +65,10 @@ endif()
 # then run source ~/.bashrc to have those environment variable effective immediately
 
 if(LOOKUP_AT_CPU)
-  message("-- LOOKUP_AT_CPu: ${LOOKUP_AT_CPU}")
+  message("-- LOOKUP_AT_CPU: ${LOOKUP_AT_CPU}")
+  set(LOOKUP_AT_CPU "USE_CPU_FOR_LOOKUP_PARAM")
 else()
   message("-- LOOKUP_AT_CPU not specified, defaulting to host lookup table at GPU if HAVE_CUDA is defined")
-  set(LOOKUP_AT_CPU "USE_CPU_FOR_LOOKUP_PARAM")
 endif()
 
 if(LOOKUP_AT_CPU MATCHES "^USE_CPU_FOR_LOOKUP_PARAM$")
