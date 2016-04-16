@@ -83,8 +83,8 @@ namespace cnn {
         else
         {
 #ifdef HAVE_CUDA
-            fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
-            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
+            fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
+            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
 #else
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
             dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
