@@ -52,6 +52,23 @@ __global__ void accTripletExprKernel(int n, const cnn::real* x0, const cnn::real
     }
 }
 
+__global__ void ker_gradient_scaling(int n, const cnn::real *dense_param_grad_norm,
+    int m, const cnn::real *sparse_param_grad_norm,
+    cnn::real clip_threshold, int samples,
+    cnn::real* gscale);
+
+template<typename Func>
+__global__ void accTripletWithOneGlbVariableExprKernel(int n, const cnn::real* r, const cnn::real* x, const cnn::real* g, cnn::real *v, cnn::real* y, Func func) {
+    __shared__ cnn::real sr[1];
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    while (i < n) {
+        sr[0] = *r;
+        __syncthreads();
+        y[i] += func(sr[0], x[i], g[i], v[i]);
+        i += gridDim.x * blockDim.x;
+    }
+}
+
 template<typename Func>
 __global__ void slowReduceKernel(int n, const cnn::real* x0, const cnn::real* x1, cnn::real* y, Func func) {
   cnn::real ty = 0;
