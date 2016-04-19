@@ -599,7 +599,7 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
             gpu::rmsprop_smoothing_den(1, rho, &vlgrd_each_norm[pi], d2);
 
             gpu::rmsprop_momentum_update(p->values[i].d.size(),
-                d2, p->values_for_non_zero_grads[i].v, p->grads_for_non_zero_grads[i].v, v.v,
+                d2, p->values[i].v, p->grads[i].v, v.v,
                 gscale, lambda, eta * scale, momentum, epsilon);
 
 #else
@@ -610,15 +610,6 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
             *p->values[i] += *v - reg;
 #endif
 
-#ifdef HAVE_CUDA
-#ifdef USE_CPU_FOR_LOOKUP_PARAM
-            CUDA_CHECK(cudaMemcpyAsync(p->values[i].v, p->values_for_non_zero_grads[i].v, sizeof(cnn::real)*p->values_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToHost));
-            CUDA_CHECK(cudaMemcpyAsync(p->grads[i].v, p->grads_for_non_zero_grads[i].v, sizeof(cnn::real)*p->grads_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToHost));
-#else
-            CUDA_CHECK(cudaMemcpyAsync(p->values[i].v, p->values_for_non_zero_grads[i].v, sizeof(cnn::real)*p->values_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToDevice));
-            CUDA_CHECK(cudaMemcpyAsync(p->grads[i].v, p->grads_for_non_zero_grads[i].v, sizeof(cnn::real)*p->grads_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToDevice));
-#endif
-#endif
             li++;
         }
         pi++;
