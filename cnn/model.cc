@@ -100,9 +100,20 @@ LookupParameters::~LookupParameters()
 {
     for (unsigned i = 0; i < values.size(); ++i) {
         auto& v = values[i];
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
         cnn_mm_free_host(v.v);
+#else
+        cnn_mm_free(v.v);
+#endif
         auto& g = grads[i];
-        cnn_mm_free_host(g.v);
+        if (g.v != nullptr){
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+            cnn_mm_free_host(g.v);
+#else
+            cnn_mm_free(g.v);
+#endif
+            g.v = nullptr;
+        }
     }
 
     free_working_copies();
@@ -113,11 +124,13 @@ void LookupParameters::free_working_copies()
     /// the working memory is at GPU
     for (auto p : values_for_non_zero_grads)
     {
-        cnn_mm_free(p.second.v);
+        if (p.second.v != nullptr)
+            cnn_mm_free(p.second.v);
     }
     for (auto p : grads_for_non_zero_grads)
     {
-        cnn_mm_free(p.second.v);
+        if (p.second.v != nullptr)
+            cnn_mm_free(p.second.v);
     }
 
     values_for_non_zero_grads.clear();
@@ -149,14 +162,20 @@ LookupParameters::LookupParameters(unsigned n, const Dim& d, cnn::real scale, st
 
     auto& g = grads[i];
     g.d = d;
+#ifdef HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
     g.v = (cnn::real*)cnn_mm_malloc_host(d.size() * sizeof(cnn::real), CNN_ALIGN);
     g.m_device_id = CPUDEVICE; /// for cpu
 #else
+    g.v = nullptr;
+    /// no need to allocate GPU memory for all gradients, of which many don't have gradients 
+#endif
+#else
     g.v = (cnn::real*)cnn_mm_malloc(d.size() * sizeof(cnn::real), CNN_ALIGN);
     g.m_device_id = device_id;
 #endif
-    TensorTools::Zero(g);
+    if (g.v != nullptr)
+        TensorTools::Zero(g);
   }
 }
 
@@ -243,11 +262,10 @@ void LookupParameters::copy(const std::map<int, std::vector<cnn::real>> & param)
 void LookupParameters::accumulate_grad(unsigned index, const Tensor& d) {
   non_zero_grads.insert(index);
 #if HAVE_CUDA
-#ifdef USE_CPU_FOR_LOOKUP_PARAM
   if (grads_for_non_zero_grads.find(index) == grads_for_non_zero_grads.end()){
       cnn::real *g = (cnn::real*)cnn_mm_malloc(d.d.size() * sizeof(cnn::real), CNN_ALIGN);
       Tensor vv(d.d, g, device_id);
-      vv.m_device_id= 0; /// for cpu
+      vv.m_device_id= device_id; /// for cpu
       TensorTools::Zero(vv);  // gradient needs to be zero in the begining
       grads_for_non_zero_grads[index] = vv;
   }
@@ -255,13 +273,14 @@ void LookupParameters::accumulate_grad(unsigned index, const Tensor& d) {
       CUBLAS_CHECK(cublasSaxpy(cublas_handle, d.d.size(), reinterpret_cast<float*>(kSCALAR_ONE), reinterpret_cast<float*>(d.v), 1, reinterpret_cast<float*>(grads_for_non_zero_grads[index].v), 1));
   else if (sizeof(cnn::real) == sizeof(double))
       CUBLAS_CHECK(cublasDaxpy(cublas_handle, d.d.size(), reinterpret_cast<double*>(kSCALAR_ONE), reinterpret_cast<double*>(d.v), 1, reinterpret_cast<double*>(grads_for_non_zero_grads[index].v), 1));
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
   /// copy the gradient to gradient on CPU
+  assert(grads[index].v != nullptr);
   CUDA_CHECK(cudaMemcpy(grads[index].v, grads_for_non_zero_grads[index].v, sizeof(cnn::real)*d.d.size(), cudaMemcpyDeviceToHost));
 #else
-  if (sizeof(cnn::real) == sizeof(float))
-      CUBLAS_CHECK(cublasSaxpy(cublas_handle, d.d.size(), reinterpret_cast<float*>(kSCALAR_ONE), reinterpret_cast<float*>(d.v), 1, reinterpret_cast<float*>(grads[index].v), 1));
-  else if (sizeof(cnn::real) == sizeof(double))
-      CUBLAS_CHECK(cublasDaxpy(cublas_handle, d.d.size(), reinterpret_cast<double*>(kSCALAR_ONE), reinterpret_cast<double*>(d.v), 1, reinterpret_cast<double*>(grads[index].v), 1)); 
+  if (grads[index].v == nullptr)
+      grads[index].v = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real)*d.d.size(), CNN_ALIGN);
+  CUDA_CHECK(cudaMemcpy(grads[index].v, grads_for_non_zero_grads[index].v, sizeof(cnn::real)*d.d.size(), cudaMemcpyDeviceToDevice));
 #endif
 #else
   *grads[index] += *d;
@@ -270,7 +289,19 @@ void LookupParameters::accumulate_grad(unsigned index, const Tensor& d) {
 
 void LookupParameters::clear() {
   for (auto i : non_zero_grads)
-    TensorTools::Zero(grads[i]);
+  {
+#ifdef HAVE_CUDA
+#ifndef USE_CPU_FOR_LOOKUP_PARAM
+      if (grads[i].v != nullptr)
+      {
+          cnn_mm_free(grads[i].v);
+          grads[i].v = nullptr;
+          continue;
+      }
+#endif
+#endif
+      TensorTools::Zero(grads[i]);
+  }
   non_zero_grads.clear();
 
   free_working_copies();

@@ -188,8 +188,10 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
     fx.m_device_id = device_id;
     if (params->values_for_non_zero_grads.find(*pindex) == params->values_for_non_zero_grads.end())
     {
-        cnn::real *v = (cnn::real*) cnn_mm_malloc(sizeof(cnn::real)*fx.d.size(), CNN_ALIGN);
-        params->values_for_non_zero_grads[*pindex] = Tensor(fx.d, v, fx.m_device_id); /// working copies for the values
+        cnn::real *v = (cnn::real*)cnn_mm_malloc(fx.d.size() * sizeof(cnn::real), CNN_ALIGN);
+        Tensor vv(fx.d, v, device_id);
+        vv.m_device_id= fx.m_device_id; /// for cpu
+        params->values_for_non_zero_grads[*pindex] = vv;
     }
     CUDA_CHECK(cudaMemcpy(params->values_for_non_zero_grads[*pindex].v, fx.v, sizeof(cnn::real)*fx.d.size(), cudaMemcpyDeviceToDevice));   /// have the same value
 #else
@@ -197,7 +199,7 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
 #endif
   }
   else {
-      std::runtime_error("not supported, should be removed"); 
+    std::runtime_error("not supported, should be removed"); 
     assert (pindices);
     assert (fx.d.batch_elems() == pindices->size());
 #ifdef HAVE_CUDA

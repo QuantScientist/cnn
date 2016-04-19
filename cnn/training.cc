@@ -596,20 +596,12 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
             Tensor& v = vx[i];
             cnn::real* d2 = hlgx + i;
 #if HAVE_CUDA
-#ifdef USE_CPU_FOR_LOOKUP_PARAM
-            auto reg = (*p->values[i]) * lambda;
-            cnn::real g2 = vlgrd_norm[li];
-            *d2 = rho * (*d2) + (1.0 - rho) * g2;
-            (*v) = momentum * (*v) - (eta * scale * gscale / sqrt(d2 + epsilon)) * *p->grads[i];
-            *p->values[i] += *v - reg;
-#else
             gpu::rmsprop_smoothing_den(1, rho, &vlgrd_each_norm[pi], d2);
 
             gpu::rmsprop_momentum_update(p->values[i].d.size(),
                 d2, p->values_for_non_zero_grads[i].v, p->grads_for_non_zero_grads[i].v, v.v,
                 gscale, lambda, eta * scale, momentum, epsilon);
 
-#endif
 #else
             auto reg = (*p->values[i]) * lambda;
             cnn::real g2 = vlgrd_each_norm[li];
