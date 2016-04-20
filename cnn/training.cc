@@ -1,5 +1,5 @@
 #include "cnn/training.h"
-
+#include "cnn/data-util.h"
 #include "cnn/gpu-ops.h"
 
 namespace cnn {
@@ -504,7 +504,7 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
     unsigned pi = 0;
 
     if (!shadow_params_allocated) {
-        hg = (cnn::real*) cnn_mm_malloc(model->parameters_list().size() * sizeof(cnn::real), 0);
+        hg = (cnn::real*) cnn_mm_malloc(model->parameters_list().size() * sizeof(cnn::real), CNN_ALIGN);
 #ifdef HAVE_CUDA
         CUDA_CHECK(cudaMemset(hg, 0, model->parameters_list().size() * sizeof(cnn::real)));
 #else
@@ -514,7 +514,7 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
         pi = 0;
         hlg.resize(model->lookup_parameters_list().size());
         for (auto p : model->lookup_parameters_list()) {
-            hlg[pi] = (cnn::real*) cnn_mm_malloc(p->size() * sizeof(cnn::real), 0);
+            hlg[pi] = (cnn::real*) cnn_mm_malloc(p->size() * sizeof(cnn::real), CNN_ALIGN);
 #ifdef HAVE_CUDA
             CUDA_CHECK(cudaMemset(hlg[pi], 0, p->size() * sizeof(cnn::real)));
 #else
@@ -544,6 +544,9 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
     compute_gradient_norm(model->parameters_list(), vpgrd_each_norm, sz_vpgrd_norm,
         model->lookup_parameters_list(), vlgrd_each_norm, sz_vlgrd_norm);
 
+//    display_value(sz_vpgrd_norm, vpgrd_each_norm, "vpgrd_each_norm=");
+//    display_value(sz_vlgrd_norm, vlgrd_each_norm, "vlgrd_each_norm=");
+
 #ifdef HAVE_CUDA
     cnn::real * gscale = (cnn::real*) glb_temp_working_mem->allocate(sizeof(cnn::real));;
 
@@ -551,6 +554,7 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
         sz_vlgrd_norm, vlgrd_each_norm,
         clip_threshold, nutt,
         gscale);
+//    display_value(1, gscale, "gscale=");
 
 #else
     cnn::real gg = 0;
@@ -570,9 +574,13 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
         Tensor& v = vp[pi].h;
 #ifdef HAVE_CUDA
         gpu::rmsprop_smoothing_den(1, rho, vpgrd_each_norm + pi, hg + pi);
+//        display_value(1, hg+pi, "hg=");
+
         gpu::rmsprop_momentum_update(p->values.d.size(),
             hg + pi, p->values.v, p->g.v,
             v.v, gscale, lambda, eta * scale, momentum, epsilon);
+//        display_value(1, v.v, "v.v=");
+//        display_value(1, p->values.v, "p->values.v=");
 #else
         auto reg = (*p->values) * lambda;
         cnn::real g2 = vpgrd_each_norm[pi];
@@ -596,12 +604,16 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
             Tensor& v = vx[i];
             cnn::real* d2 = hlgx + i;
 #if HAVE_CUDA
-            gpu::rmsprop_smoothing_den(1, rho, &vlgrd_each_norm[pi], d2);
+            gpu::rmsprop_smoothing_den(1, rho, vlgrd_each_norm + li, d2);
+//            display_value(1, d2, "hg=");
 
             gpu::rmsprop_momentum_update(p->values[i].d.size(),
-                d2, p->values[i].v, p->grads[i].v, v.v,
+                d2, p->values_for_non_zero_grads[i].v, p->grads_for_non_zero_grads[i].v, v.v,
                 gscale, lambda, eta * scale, momentum, epsilon);
+//            display_value(1, v.v, "v.v=");
+//            display_value(1, p->values_for_non_zero_grads[i].v, "p->values_for_non_zero_grads.v=");
 
+            CUDA_CHECK(cudaMemcpyAsync(p->values[i].v, p->values_for_non_zero_grads[i].v, sizeof(cnn::real)*p->values[i].d.size(), cudaMemcpyDeviceToDevice));
 #else
             auto reg = (*p->values[i]) * lambda;
             cnn::real g2 = vlgrd_each_norm[li];
