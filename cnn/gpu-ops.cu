@@ -218,7 +218,7 @@ void rmsprop_smoothing_den(int n, cnn::real rho, const cnn::real *grd_squared_no
     auto tb = SizeToBlockThreadPair(n);
     //    *r = rho * (*r) + (1 - rho) * grd_squared_norm;
     //       = *r + (rho - 1) * (*r) + (1 - rho) * grd_squared_norm;
-    accBinaryExprKernel << <tb.first, tb.second >> >(n, r, grd_squared_norm, r, FL2SGDUpdate(rho - 1, rho - 1));
+    accBinaryExprKernel << <tb.first, tb.second >> >(n, r, grd_squared_norm, r, FL2SGDUpdate(1 - rho, rho - 1));
 
 }
 
