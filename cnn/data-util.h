@@ -238,3 +238,10 @@ public:
     void join() { m_Thread.join(); }
     void detach() { m_Thread.detach();  }
 };
+
+bool is_nan(const cnn::real & value);
+
+void display_value(int n, const cnn::real* val, string str);
+
+/// find if there is nan
+void check_value(int n, const cnn::real* val, string str);
