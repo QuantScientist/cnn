@@ -173,11 +173,6 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         }
     }
 
-    if (vm.count("train-lda") > 0)
-    {
-        ptrTrainer->lda_train(vm, training, devel, sd);
-    }
-
     string fname;
     if (vm.count("parameters")) {
         fname = vm["parameters"].as<string>();
@@ -248,6 +243,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         training = read_corpus(vm["sampleresponses"].as<string>(), sd, kSRC_SOS, kSRC_EOS);
         ptrTrainer->collect_sample_responses(hred, training);
     }
+
     if (vm.count("dialogue"))
     {
         if (vm.count("outputfile") == 0)
@@ -256,6 +252,28 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         }
         ptrTrainer->dialogue(model, hred, vm["outputfile"].as<string>(), sd);
     }
+
+    if (vm.count("train-lda") > 0)
+    {
+        ptrTrainer->lda_train(vm, training, devel, sd);
+    }
+
+    if (vm.count("getidf") > 0)
+    {
+        Corpus idfcorpus;
+        cerr << "Reading dev data from " << vm["getidf"].as<string>() << "...\n";
+        ifstream ifs(vm["getidf"].as<string>().c_str());
+        if (ifs.is_open())
+            idfcorpus = read_corpus(ifs, sd, kSRC_SOS, kSRC_EOS, 1e3);
+        else
+        {
+            cerr << "cannot open " << vm["getidf"].as<string>() << endl;
+            throw std::runtime_error("cannot open file to read into corpus");
+        }
+        ifs.close();
+        ptrTrainer->get_idf(vm, idfcorpus, sd);
+    }
+
     if (vm.count("reinforce") && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
         // a mirrow of the agent to generate decoding results so that their results can be evaluated

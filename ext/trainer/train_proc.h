@@ -25,6 +25,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <unordered_map>
 
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int.hpp>
@@ -237,9 +238,8 @@ public:
     /// exact tfidf score of a term needs to be computed given a sentence
     void get_idf(variables_map vm, const Corpus &training, Dict& sd);
 protected:
-//    std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
-    std::map<string, cnn::real> m_map_idf; /// the dictionary for saving tfidf
-    /// follwong the same inddex from a dictionary
+    mutable vector<cnn::real> mv_idf; /// the dictionary for saving tfidf
+    /// the index in this vector corresponds to index in the dictionary sd
 
 public:
     vector<cnn::real> ppl_hist;
@@ -381,6 +381,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     BleuMetric bleuScore;
     bleuScore.Initialize();
 
+    IDFMetric idfScore(mv_idf);
+
     ofstream of(out_file);
 
     Timer iteration("completed in");
@@ -436,6 +438,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
 
             bleuScore.AccumulateScore(sref, srec);
 
+            idfScore.AccumulateScore(turn.second, res);
+
             turn_id++;
             prv_turn = turn;
         }
@@ -445,6 +449,9 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     cout << "BLEU (4) score = " << sBleuScore << endl;
     of << sBleuScore << endl;
 
+    pair<cnn::real, cnn::real> idf_score = idfScore.GetScore();
+    cout << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
+    of << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
     of.close();
 }
 
@@ -1861,6 +1868,7 @@ void TrainProcess<AM_t>::get_idf(variables_map vm, const Corpus &training, Dict&
         }
     }
 
+    mv_idf.resize(sd.size(), 0);
     tWordid2TfIdf::iterator it;
     for (it = idf.begin(); it != idf.end(); it++)
     {
@@ -1869,14 +1877,8 @@ void TrainProcess<AM_t>::get_idf(variables_map vm, const Corpus &training, Dict&
 
         int id = it->first; 
         cnn::real idfscore = idf_val;
-        m_map_idf[sd.Convert(id)] = idfscore;
+        mv_idf[id] = idfscore; 
     }
-
-    string fname = vm["get_tfidf"].as<string>();
-    ofstream on(fname);
-    boost::archive::text_oarchive oa(on);
-    oa << m_map_idf;
-
 }
 
 /**
