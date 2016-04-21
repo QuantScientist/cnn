@@ -186,10 +186,10 @@ class IDFMetric
 {
 private:
     /// idf of references
-    cnn::real m_refidf;
+    double m_refidf;
 
     /// idf of hypothesis
-    cnn::real m_hypidf; 
+    double m_hypidf; 
 
     /// number of comparisons
     unsigned long m_number_comparison;
@@ -219,7 +219,7 @@ public:
 
     pair<cnn::real, cnn::real> GetScore()
     {
-        cnn::real refidf = numeric_limits<cnn::real>::infinity();
+        cnn::real refidf = 0;
         cnn::real hypidf = refidf; 
         if (m_number_comparison > 0)
         {
