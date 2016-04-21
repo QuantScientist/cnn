@@ -181,6 +181,83 @@ private:
 
 };
 
+/// compute averaged IDF values
+class IDFMetric
+{
+private:
+    /// idf of references
+    cnn::real m_refidf;
+
+    /// idf of hypothesis
+    cnn::real m_hypidf; 
+
+    /// number of comparisons
+    unsigned long m_number_comparison;
+
+    vector<cnn::real> mv_idfs; 
+
+public:
+
+    IDFMetric(const vector<cnn::real>& idf_values)
+    {
+        mv_idfs = idf_values;
+        m_number_comparison = 0; 
+        m_refidf = 0;
+        m_hypidf = 0;
+    }
+
+    ~IDFMetric()
+    {}
+
+    void AccumulateScore(const vector<int> & refTokens, const vector<int> & hypTokens)
+    {
+        pair<cnn::real, cnn::real> stats = GetStats(refTokens, hypTokens);
+
+        m_refidf += stats.first;
+        m_hypidf += stats.second; 
+    }
+
+    pair<cnn::real, cnn::real> GetScore()
+    {
+        cnn::real refidf = numeric_limits<cnn::real>::infinity();
+        cnn::real hypidf = refidf; 
+        if (m_number_comparison > 0)
+        {
+            refidf = m_refidf / m_number_comparison;
+            hypidf = m_hypidf / m_number_comparison;
+        }
+        return make_pair(refidf, hypidf);
+    }
+
+    pair<cnn::real , cnn::real> GetSentenceScore(const vector<int> & refTokens, const vector<int> & hypTokens)
+    {
+        pair<cnn::real, cnn::real> stats = GetStats(refTokens, hypTokens);
+        
+        return stats;
+    }
+
+    /// compute the average of idf for reference and hypothesis
+    pair<cnn::real, cnn::real> GetStats(const vector<int> & refTokens, const vector<int> & hypTokens)
+    {
+        cnn::real refidf = 0, hypidf = 0; 
+        if (refTokens.size() > 0)
+        {
+            for (const auto & p : refTokens)
+                refidf += p;
+            refidf /= refTokens.size();
+        }
+
+        if (hypTokens.size() > 0)
+        {
+            for (const auto & p : hypTokens)
+                hypidf += p;
+            hypidf /= hypTokens.size();
+        }
+
+        return make_pair(refidf, hypidf);
+    }
+};
+
 namespace cnn {
     namespace metric {
         int levenshtein_distance(const std::vector<std::string> &s1, const std::vector<std::string> &s2);
