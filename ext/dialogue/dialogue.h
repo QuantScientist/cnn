@@ -734,7 +734,14 @@ public:
 protected:
 
     virtual Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg) = 0;
-    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg) 
+    virtual Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg, RNNPointer *prev_state) = 0;
+    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg, RNNPointer *prev_state)
+    {
+        vector<int> input(1, trg_tok);
+        return decoder_step(input, cg, prev_state);
+    }
+
+    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg)
     {
         vector<int> input(1, trg_tok);
         return decoder_step(input, cg);
