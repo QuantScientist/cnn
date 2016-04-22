@@ -62,11 +62,12 @@ void SimpleSGDTrainer::update(const std::vector<LookupParameters*> &lookup_param
   }
 
   for (auto p : lookup_params) {
-    for (auto i : p->non_zero_grads) {
+    for (auto g : p->grads) {
+      unsigned i = g.first;
 #if HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
-      gpu::sgd_update(p->values_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, p->values_for_non_zero_grads[i].v, eta * scale * gscale * nutt_scale, lambda);
-      CUDA_CHECK(cudaMemcpyAsync(p->values[i].v, p->values_for_non_zero_grads[i].v, sizeof(cnn::real)*p->values_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToHost));
+      gpu::sgd_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values[i].v, eta * scale * gscale * nutt_scale, lambda);
+      CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
 #else
       gpu::sgd_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, eta * scale * gscale * nutt_scale, lambda);
 #endif
@@ -110,9 +111,15 @@ void MomentumSGDTrainer::update(cnn::real nutt, cnn::real scale) {
   pi = 0;
   for (auto p : model->lookup_parameters_list()) {
     vector<Tensor>& vx = vlp[pi++].h;
-    for (auto i : p->non_zero_grads) {
+    for (auto g : p->grads) {
+        unsigned i = g.first;
 #if HAVE_CUDA
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+        gpu::sgd_momentum_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values_for_non_zero_grads[i].v, vx[i].v, eta * scale * gscale * nutt_scale, lambda, momentum);
+        CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
+#else
         gpu::sgd_momentum_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, vx[i].v, eta * scale * gscale * nutt_scale, lambda, momentum);
+#endif
 #else
       Tensor& v = vx[i];
       auto reg = (*p->values[i]) * lambda;
@@ -148,7 +155,8 @@ void AdagradTrainer::update(cnn::real nsamples, cnn::real scale) {
   pi = 0;
   for (auto p : model->lookup_parameters_list()) {
     vector<Tensor>& vx = vlp[pi++].h;
-    for (auto i : p->non_zero_grads) {
+    for (auto g : p->grads) {
+      unsigned i = g.first;
       Tensor& v = vx[i];
       auto reg = (*p->values[i]) * lambda;
       auto g2 = (*p->grads[i]).cwiseProduct(*p->grads[i]);
@@ -215,7 +223,8 @@ void AdadeltaTrainer::update(cnn::real nutt, cnn::real scale) {
   for (auto p : model->lookup_parameters_list()) {
     vector<Tensor>& hgvx = hlg[pi].h;
     vector<Tensor>& hdvx = hld[pi].h;
-    for (auto i : p->non_zero_grads) {
+    for (auto g : p->grads) {
+      unsigned i = g.first;
       Tensor& hgv = hgvx[i];
       Tensor& hdv = hdvx[i];
       auto& g = scale * gscale * nutt_scale * *p->grads[i];
@@ -245,7 +254,7 @@ void RmsPropTrainer::compute_gradient_norm(
     vector<int> i_mdl_size(2, plist.size());
     i_mdl_size[1] = 0;
     for (auto p : llist) {
-        for (auto i : p->non_zero_grads) i_mdl_size[1]++;
+        for (auto i : p->grads) i_mdl_size[1]++;
     }
 
     int i_mdl_total_size = i_mdl_size[0] + i_mdl_size[1];
@@ -272,13 +281,10 @@ void RmsPropTrainer::compute_gradient_norm(
     }
 
     for (auto p : llist) {
-        for (auto i : p->non_zero_grads) {
+        for (auto g : p->grads) {
+            unsigned i = g.first;
 #if HAVE_CUDA
-#ifdef USE_CPU_FOR_LOOKUP_PARAM
-            gpu::l2_norm_reducer(p->grads_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, v_norm + pi, true, false);
-#else
             gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, v_norm + pi, true, false);
-#endif
 #else
             cnn::real g2 = (*p->grads[i]).squaredNorm();
             *(v_norm + pi) = g2;
@@ -355,23 +361,21 @@ void RmsPropTrainer::update(cnn::real nutt, cnn::real scale)
   int li = 0;
   for (auto p : model->lookup_parameters_list()) {
     vector<cnn::real>& hlgx = hlg[pi];
-    for (auto i : p->non_zero_grads) {
+    for (auto g : p->grads) {
+        unsigned i = g.first;
         cnn::real& d2 = hlgx[i];
 #if HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
-        CUDA_CHECK(cudaMemcpyAsync(p->grads[i].v, p->grads_for_non_zero_grads[i].v, sizeof(cnn::real)*p->grads_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToHost));
-        auto reg = (*p->values[i]) * lambda;
-        cnn::real g2 = vlgrd_norm[li];
-        d2 = rho * d2 + (1.0 - rho) * g2;
-        *p->values[i] -= ((eta * scale * gscale / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
+        gpu::rmsprop_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values_for_non_zero_grads[i].v, &d2, eta * scale * gscale, lambda, rho, epsilon, vlgrd_norm[li]);
+        CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
 #else
         gpu::rmsprop_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, &d2, eta * scale * gscale, lambda, rho, epsilon, vlgrd_norm[li]);
 #endif
 #else
-      auto reg = (*p->values[i]) * lambda;
-      cnn::real g2 = (*p->grads[i]).squaredNorm();
-      d2 = rho * d2 + (1.0 - rho) * g2;
-      *p->values[i] -= ((eta * scale * gscale  / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
+        auto reg = (*p->values[i]) * lambda;
+        cnn::real g2 = (*p->grads[i]).squaredNorm();
+        d2 = rho * d2 + (1.0 - rho) * g2;
+        *p->values[i] -= ((eta * scale * gscale  / sqrt(d2 + epsilon)) * *p->grads[i] + reg);
 #endif
       li++;
     }
@@ -441,17 +445,14 @@ void RmsPropWithMomentumTrainer::update(cnn::real nutt, cnn::real scale) {
     for (auto p : model->lookup_parameters_list()) {
         vector<cnn::real>& hlgx = hlg[pi];
         vector<Tensor>& vx = vlp[pi++].h;
-        for (auto i : p->non_zero_grads) {
+        for (auto g : p->grads) {
+            unsigned i = g.first;
             Tensor& v = vx[i];
             cnn::real& d2 = hlgx[i];
 #if HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
-            CUDA_CHECK(cudaMemcpyAsync(p->grads[i].v, p->grads_for_non_zero_grads[i].v, sizeof(cnn::real)*p->grads_for_non_zero_grads[i].d.size(), cudaMemcpyDeviceToHost));
-            auto reg = (*p->values[i]) * lambda;
-            cnn::real g2 = vlgrd_norm[li];
-            d2 = rho * d2 + (1.0 - rho) * g2;
-            (*v) = momentum * (*v) - (eta * scale * gscale / sqrt(d2 + epsilon)) * *p->grads[i];
-            *p->values[i] += *v - reg; 
+            gpu::rmsprop_momentum_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values_for_non_zero_grads[i].v, v.v, &d2, eta * scale * gscale, lambda, momentum, rho, epsilon, vlgrd_norm[li]);
+            CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
 #else
             gpu::rmsprop_momentum_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, v.v, &d2, eta * scale * gscale, lambda, momentum, rho, epsilon, vlgrd_norm[li]);
 #endif
@@ -488,9 +489,10 @@ void RmsPropWithMomentumTrainerGPU::compute_gradient_norm(
 
     pi = 0;
     for (auto p : llist) {
-        for (auto i : p->non_zero_grads) {
+        for (auto g : p->grads) {
+            unsigned i = g.first;
 #ifdef HAVE_CUDA
-            gpu::l2_norm_reducer(p->grads_for_non_zero_grads[i].d.size(), p->grads_for_non_zero_grads[i].v, &ptr_gnorm_lookup[pi], true, false);
+            gpu::l2_norm_reducer(p->grads[i].d.size(), p->grads[i].v, &ptr_gnorm_lookup[pi], true, false);
 #else
             cnn::real g2 = (*p->grads[i]).squaredNorm();
             ptr_gnorm_lookup[pi] = g2;
@@ -535,7 +537,7 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
     int sz_vpgrd_norm = model->parameters_list().size();
     int sz_vlgrd_norm = 0;
     for (auto p : model->lookup_parameters_list()) {
-        for (auto i : p->non_zero_grads) sz_vlgrd_norm++;
+        for (auto i : p->grads) sz_vlgrd_norm++;
     }
 
     vpgrd_each_norm = (cnn::real*) glb_temp_working_mem->allocate(sizeof(cnn::real)*sz_vpgrd_norm);
@@ -600,20 +602,26 @@ void RmsPropWithMomentumTrainerGPU::update(cnn::real nutt, cnn::real scale) {
     for (auto p : model->lookup_parameters_list()) {
         vector<Tensor>& vx = vlp[pi].h;
         cnn::real * hlgx = hlg[pi];
-        for (auto i : p->non_zero_grads) {
+        for (auto g : p->grads) {
+            unsigned i = g.first;
             Tensor& v = vx[i];
             cnn::real* d2 = hlgx + i;
 #if HAVE_CUDA
             gpu::rmsprop_smoothing_den(1, rho, vlgrd_each_norm + li, d2);
 //            display_value(1, d2, "hg=");
 
-            gpu::rmsprop_momentum_update(p->values[i].d.size(),
-                d2, p->values_for_non_zero_grads[i].v, p->grads_for_non_zero_grads[i].v, v.v,
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+            gpu::rmsprop_momentum_update(p->values_for_non_zero_grads[i].d.size(),
+                d2, p->values_for_non_zero_grads[i].v, p->grads[i].v, v.v,
                 gscale, lambda, eta * scale, momentum, epsilon);
 //            display_value(1, v.v, "v.v=");
-//            display_value(1, p->values_for_non_zero_grads[i].v, "p->values_for_non_zero_grads.v=");
-
-            CUDA_CHECK(cudaMemcpyAsync(p->values[i].v, p->values_for_non_zero_grads[i].v, sizeof(cnn::real)*p->values[i].d.size(), cudaMemcpyDeviceToDevice));
+//            display_value(1, p->values_for_grads[i].v, "p->values_for_grads.v=");
+            CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
+#else
+            gpu::rmsprop_momentum_update(p->values[i].d.size(),
+                d2, p->values[i].v, p->grads[i].v, v.v,
+                gscale, lambda, eta * scale, momentum, epsilon);
+#endif
 #else
             auto reg = (*p->values[i]) * lambda;
             cnn::real g2 = vlgrd_each_norm[li];
@@ -672,7 +680,8 @@ void AdamTrainer::update(cnn::real nutt, cnn::real scale) {
   for (auto p : model->lookup_parameters_list()) {
     vector<Tensor>& vm = lm[pi].h;
     vector<Tensor>& vv = lv[pi].h;
-    for (auto i : p->non_zero_grads) {
+    for (auto g : p->grads) {
+      unsigned i = g.first;
       auto m_t = *vm[i];
       auto v_t = *vv[i];
       auto g_t = scale * gscale * nutt_scale * *p->grads[i];
