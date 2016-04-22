@@ -78,13 +78,12 @@ struct LookupParameters : public ParametersBase {
 
   Dim dim;
   std::vector<Tensor> values;
-  std::vector<Tensor> grads;
-  // gradients are sparse, so track which components are nonzero
-  std::unordered_set<unsigned> non_zero_grads;
+
   // working memory for those values and gradient that are actively used, they can be in GPU, where
   // main memory is in CPU
   std::unordered_map<unsigned, Tensor> values_for_non_zero_grads;
-  std::unordered_map<unsigned, Tensor> grads_for_non_zero_grads;
+  std::unordered_map<unsigned, Tensor> grads;
+
   std::string name;
 
 private:
