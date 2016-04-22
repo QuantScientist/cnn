@@ -19,6 +19,7 @@ namespace cnn {
     AlignedMemoryPool<ALIGN>* dEdfs = nullptr;
     AlignedMemoryPool<ALIGN>* mem_nodes= nullptr;   /// for nodes allocation/delocation. operation of new/delete of each node has been overwritten to use this memory pool for speed-up
     AlignedMemoryPool<ALIGN>* glb_temp_working_mem = nullptr;
+    AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem = nullptr; /// this saves gradient on those sparse lookup table parameters that have non-zero gradiens. these values and gradients are temporary
     mt19937* rndeng = nullptr;
 
     char* getCmdOption(char ** begin, char ** end, const std::string & option)
@@ -75,6 +76,8 @@ namespace cnn {
 		unsigned long num_mb = 512UL;
         mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20), true);
         glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 16);
+        glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 25);
+
         if (demo)
         {
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
@@ -83,8 +86,8 @@ namespace cnn {
         else
         {
 #ifdef HAVE_CUDA
-            fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
-            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
+            fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
+            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
 #else
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
             dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
