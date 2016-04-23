@@ -64,6 +64,11 @@ endif()
 # echo "export BOOST_ROOT=/cygdrive/d/tools/boost_1_58_0/boost_1_58_0" >> ~/.bashrc
 # then run source ~/.bashrc to have those environment variable effective immediately
 
+if (USE_DOUBLE)
+  message("-- use double precsion")
+  add_definitions(-DUSE_DOUBLE)
+endif()
+
 if(LOOKUP_AT_CPU)
   message("-- LOOKUP_AT_CPU: ${LOOKUP_AT_CPU}")
   set(LOOKUP_AT_CPU "USE_CPU_FOR_LOOKUP_PARAM")
