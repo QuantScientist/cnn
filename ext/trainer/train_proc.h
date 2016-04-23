@@ -402,9 +402,19 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
             vector<string> sref, srec;
 
             if (turn_id == 0)
-                res = am.decode(turn.first, cg, sd);
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode(turn.first, cg, sd);
+                else
+                    res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+            }
             else
-                res = am.decode(prv_turn.second, turn.first, cg, sd);
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode(prv_turn.second, turn.first, cg, sd);
+                else
+                    res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+            }
 
             if (turn.first.size() > 0)
             {
@@ -496,9 +506,19 @@ void TrainProcess<AM_t>::test_segmental(Model &model, AM_t &am, Corpus &devel, s
             vector<string> sref, srec;
 
             if (turn_id == 0)
-                res = am.decode(turn.first, cg, sd);
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode(turn.first, cg, sd);
+                else
+                    res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+            }
             else
-                res = am.decode(prv_turn.second, turn.first, cg, sd);
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode(prv_turn.second, turn.first, cg, sd);
+                else
+                    res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+            }
 
             if (turn.first.size() > 0)
             {

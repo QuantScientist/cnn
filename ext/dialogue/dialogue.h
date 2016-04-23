@@ -653,88 +653,17 @@ public:
          return verr;
      }
 
-     /*
-     Expression build_graph_target_source(const std::vector<std::vector<int>> &source, const std::vector<std::vector<int>>& osent, ComputationGraph &cg){
-         return build_graph(source, osent, cg, &t2s_encoder_fwd, &t2s_encoder_bwd, &context, &t2s_decoder);
-     }
-
-     Expression build_graph(const std::vector<std::vector<int>> &source, const std::vector<std::vector<int>>& osent, ComputationGraph &cg,
-         Builder* encoder_fwd, Builder* encoder_bwd,
-         Builder * context,
-         Builder *decoder)
-     {
-         unsigned int nutt;
-         start_new_instance(source, cg, encoder_fwd, encoder_bwd, context, decoder);
-
-         // decoder
-         vector<Expression> errs;
-
-         Expression i_R = parameter(cg, p_R); // hidden -> word rep parameter
-         Expression i_bias = parameter(cg, p_bias);  // word bias
-
-         nutt = osent.size();
-
-         int oslen = 0;
-         for (auto p : osent)
-             oslen = (oslen < p.size()) ? p.size() : oslen;
-
-         Expression i_bias_mb = concatenate_cols(vector<Expression>(nutt, i_bias));
-
-         v_decoder_context.clear();
-         v_decoder_context.resize(nutt);
-         for (int t = 0; t < oslen; ++t) {
-             vector<int> vobs;
-             for (auto p : osent)
-             {
-                 if (t < p.size())
-                     vobs.push_back(p[t]);
-                 else
-                     vobs.push_back(-1);
-             }
-             Expression i_y_t = decoder_step(vobs, cg, decoder);
-             Expression i_r_t = i_bias_mb + i_R * i_y_t;
-             cg.incremental_forward();
-
-             Expression x_r_t = reshape(i_r_t, { vocab_size * nutt });
-             for (size_t i = 0; i < nutt; i++)
-             {
-                 if (t < osent[i].size() - 1)
-                 {
-                     /// only compute errors on with output labels
-                     Expression r_r_t = pickrange(x_r_t, i * vocab_size, (i + 1)*vocab_size);
-                     Expression i_ydist = log_softmax(r_r_t);
-                     errs.push_back(pick(i_ydist, osent[i][t + 1]));
-                 }
-                 else if (t == osent[i].size() - 1)
-                 {
-                     /// get the last hidden state to decode the i-th utterance
-                     vector<Expression> v_t;
-                     for (auto p : decoder->final_s())
-                     {
-                         Expression i_tt = reshape(p, { nutt * hidden_dim });
-                         int stt = i * hidden_dim;
-                         int stp = stt + hidden_dim;
-                         Expression i_t = pickrange(i_tt, stt, stp);
-                         v_t.push_back(i_t);
-                     }
-                     v_decoder_context[i] = v_t;
-                 }
-             }
-         }
-
-         save_context(cg);
-
-         Expression i_nerr = sum(errs);
-
-         turnid++;
-         return -i_nerr;
-     };
-*/
-
-protected:
+ protected:
 
     virtual Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg) = 0;
-    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg) 
+    virtual Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg, RNNPointer *prev_state) = 0;
+    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg, RNNPointer *prev_state)
+    {
+        vector<int> input(1, trg_tok);
+        return decoder_step(input, cg, prev_state);
+    }
+
+    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg)
     {
         vector<int> input(1, trg_tok);
         return decoder_step(input, cg);
