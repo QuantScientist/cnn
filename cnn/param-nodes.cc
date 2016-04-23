@@ -7,6 +7,8 @@ using namespace std;
 
 namespace cnn {
 
+extern AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem;
+
 string ConstParameterNode::as_string(const vector<string>& arg_names) const {
   ostringstream s;
   s << "const_parameters(" << dim << ", " << params << ')';
@@ -188,7 +190,7 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
     fx.m_device_id = device_id;
     if (params->values_for_non_zero_grads.find(*pindex) == params->values_for_non_zero_grads.end())
     {
-        cnn::real *v = (cnn::real*)cnn_mm_malloc(fx.d.size() * sizeof(cnn::real), CNN_ALIGN);
+        cnn::real *v = (cnn::real*)glb_temp_lookup_gradient_value_mem->allocate(fx.d.size() * sizeof(cnn::real));
         Tensor vv(fx.d, v, device_id);
         vv.m_device_id= fx.m_device_id; /// for cpu
         params->values_for_non_zero_grads[*pindex] = vv;

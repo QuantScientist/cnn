@@ -117,10 +117,6 @@ void LookupParameters::clear()
     /// the working memory is at GPU
     glb_temp_lookup_gradient_value_mem->free();
 
-    for (auto p : values_for_non_zero_grads)
-    {
-        cnn_mm_free(p.second.v);
-    }
     values_for_non_zero_grads.clear();
 
     grads.clear();
