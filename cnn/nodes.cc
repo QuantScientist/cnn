@@ -265,11 +265,7 @@ void Transpose::backward_impl(const vector<const Tensor*>& xs,
 
 void Reshape::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
   // BUG will be created if just point to the input memory and change dimensions
-#if HAVE_CUDA
-  CUDA_CHECK(cudaMemcpy(fx.v, xs[0]->v, sizeof(cnn::real) * dim.size(), cudaMemcpyDeviceToDevice));
-#else
   fx.v = xs[0]->v;
-#endif
   fx.m_device_id = xs[0]->m_device_id;
 }
 
@@ -595,11 +591,7 @@ void Sum::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
     const unsigned num_args = xs.size();
     fx.m_device_id = xs[0]->m_device_id;
     if (num_args == 1) {
-#if HAVE_CUDA
-        CUDA_CHECK(cudaMemcpy(fx.v, xs[0]->v, sizeof(cnn::real) * dim.size(), cudaMemcpyDeviceToDevice));
-#else
         fx.v = xs[0]->v;
-#endif
         return;
     }
 #if HAVE_CUDA
