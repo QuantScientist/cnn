@@ -215,6 +215,7 @@ public:
 
         m_refidf += stats.first;
         m_hypidf += stats.second; 
+        m_number_comparison++;
     }
 
     pair<cnn::real, cnn::real> GetScore()
