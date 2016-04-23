@@ -76,7 +76,7 @@ namespace cnn {
 		unsigned long num_mb = 512UL;
         mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20), true);
         glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 16);
-        glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 26);
+        glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 25);
 
         if (demo)
         {
