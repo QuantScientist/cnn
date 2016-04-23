@@ -190,12 +190,9 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
     fx.m_device_id = device_id;
     if (params->values_for_non_zero_grads.find(*pindex) == params->values_for_non_zero_grads.end())
     {
-        cnn::real *v = (cnn::real*)glb_temp_lookup_gradient_value_mem->allocate(fx.d.size() * sizeof(cnn::real));
-        Tensor vv(fx.d, v, device_id);
-        vv.m_device_id= fx.m_device_id; /// for cpu
+        Tensor vv(fx.d, fx.v, fx.m_device_id);
         params->values_for_non_zero_grads[*pindex] = vv;
     }
-    CUDA_CHECK(cudaMemcpy(params->values_for_non_zero_grads[*pindex].v, fx.v, sizeof(cnn::real)*fx.d.size(), cudaMemcpyDeviceToDevice));   /// have the same value
 #else
     fx.v = params->values[*pindex].v;
 #endif
