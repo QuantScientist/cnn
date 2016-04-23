@@ -193,6 +193,7 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
         Tensor vv(fx.d, fx.v, fx.m_device_id);
         params->values_for_non_zero_grads[*pindex] = vv;
     }
+    params->values_for_non_zero_grads[*pindex].v = fx.v;
 #else
     fx.v = params->values[*pindex].v;
 #endif
