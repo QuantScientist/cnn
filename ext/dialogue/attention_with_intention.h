@@ -2061,7 +2061,7 @@ public:
                     {
                         if (vi == eos_sym)
                         {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            Hypothesis hnew(decoder.state(), vi, score / it, hprev);
                             completed.push(hnew);
                         }
                         else
@@ -2104,7 +2104,6 @@ public:
         }
         else
         {
-            completed.pop();
             best = completed.top().target;
         }
 
@@ -2193,7 +2192,7 @@ public:
                     {
                         if (vi == eos_sym)
                         {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            Hypothesis hnew(decoder.state(), vi, score / (it), hprev);
                             completed.push(hnew);
                         }
                         else
@@ -2236,7 +2235,6 @@ public:
         }
         else
         {
-            completed.pop();
             best = completed.top().target;
         }
 
