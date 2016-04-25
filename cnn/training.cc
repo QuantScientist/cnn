@@ -451,8 +451,12 @@ void RmsPropWithMomentumTrainer::update(cnn::real nutt, cnn::real scale) {
             cnn::real& d2 = hlgx[i];
 #if HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
-            gpu::rmsprop_momentum_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values_for_non_zero_grads[i].v, v.v, &d2, eta * scale * gscale, lambda, momentum, rho, epsilon, vlgrd_norm[li]);
+            cnn::real* gpu_v = (cnn::real*) glb_temp_working_mem->allocate(v.d.size() * sizeof(cnn::real));
+            CUDA_CHECK(cudaMemcpy(gpu_v, v.v, sizeof(cnn::real)*v.d.size(), cudaMemcpyHostToDevice));
+            gpu::rmsprop_momentum_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values_for_non_zero_grads[i].v, gpu_v, &d2, eta * scale * gscale, lambda, momentum, rho, epsilon, vlgrd_norm[li]);
             CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(v.v, gpu_v, sizeof(cnn::real)*v.d.size(), cudaMemcpyDeviceToHost));
+            glb_temp_working_mem->dealocate(v.d.size() * sizeof(cnn::real));
 #else
             gpu::rmsprop_momentum_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, v.v, &d2, eta * scale * gscale, lambda, momentum, rho, epsilon, vlgrd_norm[li]);
 #endif
