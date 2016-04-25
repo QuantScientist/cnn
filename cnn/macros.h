@@ -53,6 +53,10 @@ typedef float real;
 /// other parameters will be stored on CPU or GPU depending on the build
 //#define USE_CPU_FOR_LOOKUP_PARAM
 
+/// if GPU memory is small, function and gradient cannot have large allocated space
+/// the solution is use both USE_CPU_FOR_LOOKUP_PARAM and also turn on the following SMALL_GPU
+/// #define SMALL_GPU
+
 /// whether to do binary serialization 
 #define BINARY_BOOST
 };
