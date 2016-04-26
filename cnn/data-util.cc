@@ -555,6 +555,9 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     return corpus;
 }
 
+/**
+part_size : the number of lines to read. if smaller than 0, then read all lines. 
+*/
 Corpus read_corpus(ifstream & in, Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size)
 {
     string line;
@@ -565,7 +568,7 @@ Corpus read_corpus(ifstream & in, Dict& sd, int kSRC_SOS, int kSRC_EOS, long par
     int lc = 0, stoks = 0, ttoks = 0;
 
     long iln = 0;
-    while (getline(in, line) && iln < part_size) {
+    while (getline(in, line) && (part_size < 0 || iln < part_size)) {
         trim_left(line);
         trim_right(line);
         if (line.length() == 0)
