@@ -2044,7 +2044,7 @@ public:
                     {
                         if (vi == eos_sym)
                         {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            Hypothesis hnew(decoder.state(), vi, score/it, hprev);
                             completed.push(hnew);
                         }
                         else
@@ -2113,7 +2113,7 @@ public:
         const int sos_sym = tdict.Convert("<s>");
         const int eos_sym = tdict.Convert("</s>");
 
-        size_t tgt_len = 40;//50 * source.size();
+        size_t tgt_len = 30;//50 * source.size();
 
         start_new_single_instance(prv_response, source, cg);
 
@@ -2161,7 +2161,7 @@ public:
                     {
                         if (vi == eos_sym)
                         {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            Hypothesis hnew(decoder.state(), vi, score/it, hprev);
                             completed.push(hnew);
                         }
                         else
