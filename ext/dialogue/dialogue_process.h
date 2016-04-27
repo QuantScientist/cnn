@@ -119,13 +119,15 @@ namespace cnn {
         virtual vector<Sentence>batch_decode(const vector<Sentence>& cur_sentence, ComputationGraph& cg, cnn::Dict & tdict)
         {
             s2tmodel.reset();  /// reset network
-            vector<Sentence> iret = s2tmodel.batch_decode(cur_sentence, cg, tdict);
+            vector<Sentence> prv_sentence;
+            vector<Sentence> iret = s2tmodel.batch_decode(prv_sentence, cur_sentence, cg, tdict);
             return iret;
         }
 
         virtual vector<Sentence> batch_decode(const vector<Sentence>& prv_sentence, const vector<Sentence>& cur_sentence, ComputationGraph& cg, cnn::Dict& tdict)
         {
-            vector<Sentence> iret = s2tmodel.batch_decode(cur_sentence, cg, tdict);
+            s2tmodel.assign_cxt(cg, cur_sentence.size());
+            vector<Sentence> iret = s2tmodel.batch_decode(prv_sentence, cur_sentence, cg, tdict);
             return iret;
         }
 
