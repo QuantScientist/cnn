@@ -537,6 +537,18 @@ namespace cnn {
             return s2tmodel.beam_decode(source, cur, cg, beam_search_decode, tdict);
         }
 
+        virtual std::vector<std::vector<int>> beam_decode_rerank(const std::vector<int> &source, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            s2tmodel.reset();  /// reset network
+            return s2tmodel.beam_decode_rerank(source, cg, beam_search_decode, tdict);
+        }
+
+        virtual std::vector<std::vector<int>> beam_decode_rerank(const std::vector<int> &source, const std::vector<int>& cur, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            s2tmodel.assign_cxt(cg, 1);
+            return s2tmodel.beam_decode_rerank(source, cur, cg, beam_search_decode, tdict);
+        }
+
     };
 
     template <class DBuilder>

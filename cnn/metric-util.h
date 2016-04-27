@@ -244,14 +244,14 @@ public:
         if (refTokens.size() > 0)
         {
             for (const auto & p : refTokens)
-                refidf += p;
+                refidf += mv_idfs[p];
             refidf /= refTokens.size();
         }
 
         if (hypTokens.size() > 0)
         {
             for (const auto & p : hypTokens)
-                hypidf += p;
+                hypidf += mv_idfs[p];
             hypidf /= hypTokens.size();
         }
 

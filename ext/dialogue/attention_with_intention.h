@@ -2223,6 +2223,262 @@ public:
         turnid++;
         return best;
     }
+
+
+    virtual std::vector<std::vector<int>> beam_decode_rerank(const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+
+        //assert(!giza_extensions);
+        const int sos_sym = tdict.Convert("<s>");
+        const int eos_sym = tdict.Convert("</s>");
+
+        size_t tgt_len = 40;//50 * source.size();
+        Sentence prv_response;
+
+        start_new_single_instance(prv_response, source, cg);
+
+        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
+        chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
+
+        boost::integer_range<int> vocab = boost::irange<int>(0, vocab_size_tgt);
+        vector<int> vec_vocab(vocab_size_tgt, 0);
+        for (auto k : vocab)
+        {
+            vec_vocab[k] = k;
+        }
+        vector<int> org_vec_vocab = vec_vocab;
+
+        size_t it = 0;
+        while (it < tgt_len) {
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> new_chart;
+            vec_vocab = org_vec_vocab;
+            real best_score = -numeric_limits<real>::infinity() + 100.;
+
+            while (!chart.empty()) {
+                Hypothesis hprev = chart.top();
+                //Expression i_scores = add_input(hprev.target.back(), hprev.t, cg, &hprev.builder_state);
+                Expression i_scores = decoder_single_instance_step(hprev.target.back(), cg, &hprev.builder_state);
+                Expression ydist = log_softmax(i_scores); // compiler warning, but see below
+
+                // find the top k best next words
+                unsigned w = 0;
+                //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
+                auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
+                real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
+                if (mscore < best_score - beam_width)
+                {
+                    chart.pop();
+                    continue;
+                }
+
+                best_score = max(mscore, best_score);
+
+                for (auto vi : vec_vocab)
+                {
+                    real score = hprev.cost + dist[vi];
+                    if (score >= best_score - beam_width)
+                    {
+                        if (vi == eos_sym)
+                        {
+                            Hypothesis hnew(decoder.state(), vi, score / (it + 1), hprev);
+                            completed.push(hnew);
+                        }
+                        else
+                        {
+                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            new_chart.push(hnew);
+                        }
+                    }
+                }
+
+                chart.pop();
+            }
+
+            if (new_chart.size() == 0)
+                break;
+
+            size_t top_beam_width = 0;
+            while (!new_chart.empty())
+            {
+                chart.push(new_chart.top());
+                new_chart.pop();
+                top_beam_width++;
+            }
+            it++;
+        }
+
+        vector<vector<int>> kbest;        
+        if (completed.size() == 0)
+        {
+            cerr << "beam search decoding beam width too small, use the best path so far" << flush;
+            vector<int> best;
+            best = chart.top().target;
+            best.push_back(eos_sym);
+            kbest.push_back(best);
+        }
+        else
+        {
+            int nbrkbest = 0;
+            while (completed.size() != 0)
+            {
+                kbest.push_back(completed.top().target);
+                completed.pop();
+                if (nbrkbest > 10)
+                    break;
+                nbrkbest++;
+            }
+        }
+
+        /// diagonsis
+        /// n-best
+        
+       /* int kbest = 0;
+        while (completed.size() != 0)
+        {
+        auto pbest = completed.top().target;
+        cout << "top" << kbest++ << " best : ";
+        for (auto a : pbest)
+        cout << sd.Convert(a) << " ";
+        cout << endl;
+        completed.pop();
+        if (kbest > 3)
+        break;
+        }*/
+
+        save_context(cg);
+        serialise_context(cg);
+
+        turnid++;
+        return kbest;
+    }
+
+    virtual std::vector<std::vector<int>> beam_decode_rerank(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        //assert(!giza_extensions);
+        const int sos_sym = tdict.Convert("<s>");
+        const int eos_sym = tdict.Convert("</s>");
+
+        size_t tgt_len = 30;//50 * source.size();
+
+        start_new_single_instance(prv_response, source, cg);
+
+        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
+        chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
+
+        boost::integer_range<int> vocab = boost::irange<int>(0, vocab_size_tgt);
+        vector<int> vec_vocab(vocab_size_tgt, 0);
+        for (auto k : vocab)
+        {
+            vec_vocab[k] = k;
+        }
+        vector<int> org_vec_vocab = vec_vocab;
+
+        size_t it = 0;
+        while (it < tgt_len) {
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> new_chart;
+            vec_vocab = org_vec_vocab;
+            real best_score = -numeric_limits<real>::infinity() + 100.;
+
+            while (!chart.empty()) {
+                Hypothesis hprev = chart.top();
+                //Expression i_scores = add_input(hprev.target.back(), hprev.t, cg, &hprev.builder_state);
+                Expression i_scores = decoder_single_instance_step(hprev.target.back(), cg, &hprev.builder_state);
+                Expression ydist = log_softmax(i_scores); // compiler warning, but see below
+
+                // find the top k best next words
+                unsigned w = 0;
+                //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
+                auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
+                real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
+                if (mscore < best_score - beam_width)
+                {
+                    chart.pop();
+                    continue;
+                }
+
+                best_score = max(mscore, best_score);
+
+                for (auto vi : vec_vocab)
+                {
+                    real score = hprev.cost + dist[vi];
+                    if (score >= best_score - beam_width)
+                    {
+                        if (vi == eos_sym)
+                        {
+                            Hypothesis hnew(decoder.state(), vi, score / (it + 1), hprev);
+                            completed.push(hnew);
+                        }
+                        else
+                        {
+                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            new_chart.push(hnew);
+                        }
+                    }
+                }
+
+                chart.pop();
+            }
+
+            if (new_chart.size() == 0)
+                break;
+
+            size_t top_beam_width = 0;
+            while (!new_chart.empty())
+            {
+                chart.push(new_chart.top());
+                new_chart.pop();
+                top_beam_width++;
+            }
+            it++;
+        }
+
+        vector<vector<int>> kbest;
+        if (completed.size() == 0)
+        {
+            cerr << "beam search decoding beam width too small, use the best path so far" << flush;
+            vector<int> best;
+            best = chart.top().target;
+            best.push_back(eos_sym);
+            kbest.push_back(best);
+        }
+        else
+        {
+            int nbrkbest = 0;
+            while (completed.size() != 0)
+            {
+                kbest.push_back(completed.top().target);
+                completed.pop();
+                if (nbrkbest > 10)
+                    break;
+                nbrkbest++;
+            }
+        }
+
+
+        save_context(cg);
+        serialise_context(cg);
+
+        /// n-best
+        /*
+        int kbest = 0;
+        while (completed.size() != 0)
+        {
+        auto pbest = completed.top().target;
+        cout << "top" << kbest++ << " best : ";
+        for (auto a : pbest)
+        cout << sd.Convert(a) << " ";
+        cout << endl;
+        completed.pop();
+        if (kbest > 3)
+        break;
+        }*/
+
+        turnid++;
+        return kbest;
+    }
+
 };
 
 /**
