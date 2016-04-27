@@ -2479,6 +2479,76 @@ public:
         return kbest;
     }
 
+    /// return [nutt][decoded_results]
+    std::vector<Sentence> batch_decode(const std::vector<Sentence>& prv_response, 
+        const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        const int sos_sym = tdict.Convert("<s>");
+        const int eos_sym = tdict.Convert("</s>");
+
+        unsigned int nutt = source.size();
+        std::vector<Sentence> target(nutt, vector<int>(1, sos_sym));
+
+        int t = 0;
+
+        start_new_instance(prv_response, source, cg);
+        cg.incremental_forward();
+
+        Expression i_bias = parameter(cg, p_bias);
+        Expression i_R = parameter(cg, p_R);
+
+        v_decoder_context.clear();
+
+        vector<int> vtmp(nutt, sos_sym);
+
+        bool need_decode = true;
+        while (need_decode)
+        {
+            Expression i_y_t = log_softmax(decoder_step(vtmp, cg));
+            Expression ydist = reshape(i_y_t, { nutt * vocab_size_tgt });
+            auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
+
+            need_decode = false;
+            vtmp.clear();
+            for (size_t k = 0; k < nutt; k++)
+            {
+                if (target[k].back() != eos_sym)
+                {
+                    // find the argmax next word (greedy)
+                    unsigned w = 0;
+                    unsigned init_pos = k * vocab_size_tgt;
+                    auto pr_w = dist[w + init_pos];
+                    for (unsigned x = 1 + init_pos; x < init_pos + vocab_size_tgt; ++x) {
+                        if (dist[x] > pr_w) {
+                            w = x;
+                            pr_w = dist[x];
+                        }
+                    }
+
+                    // break potential infinite loop
+                    if (t > 100) {
+                        w = eos_sym;
+                        pr_w = dist[w + init_pos];
+                    }
+
+                    vtmp.push_back(w - init_pos);
+                    target[k].push_back(w - init_pos);
+                    need_decode = true;
+                }
+                else
+                    vtmp.push_back(eos_sym);
+            }
+            t += 1;
+        }
+
+        save_context(cg);
+        serialise_context(cg);
+
+        turnid++;
+
+        return target;
+    }
+
 };
 
 /**
