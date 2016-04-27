@@ -56,11 +56,7 @@ inline void cnn_mm_free(void* mem, bool on_cpu_only = false) {
 
 inline void* cnn_mm_malloc_host(size_t n, size_t align) {
     void* ptr = nullptr;
-#if HAVE_CUDA
-    CUDA_CHECK(cudaMallocHost(&ptr, n));
-#else
     ptr = _mm_malloc(n, align);
-#endif
     if (!ptr) {
         std::cerr << "Memory allocation failed n=" << n << " align=" << align << std::endl;
         throw cnn::out_of_memory("Memory allocation failed in cnn_mm_malloc()");
@@ -69,11 +65,7 @@ inline void* cnn_mm_malloc_host(size_t n, size_t align) {
 }
 
 inline void cnn_mm_free_host(void* mem) {
-#if HAVE_CUDA
-    CUDA_CHECK(cudaFreeHost(mem));
-#else
     _mm_free(mem);
-#endif
 
     //#else
     //  return std::free(n, align);
