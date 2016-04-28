@@ -69,6 +69,10 @@ bool similar_length(const vector<vector<int>>& source);
 /// returns init hidden for each utt in each layer
 std::vector<std::vector<Expression>> rnn_h0_for_each_utt(std::vector<Expression> v_h0, unsigned nutt, unsigned feat_dim);
 
+/// mask for each utterance
+/// assume that v_h0 has [layers][nutt] structure
+/// where Expression in v_h0 is [nutt * featdim matrix
+vector<Expression> mask(vector<Expression> v_h0, const vector<bool>& mask, unsigned nutt, unsigned feat_dim, const Expression & zeros);
 
 /**
 data in return has the following format
@@ -119,7 +123,7 @@ now need to process the data so that the output is
  0 1 2 3 x;
  0 1 2 3 4]
 i.e., the redundence is put to the end of a matrix*/
-template<class Builder>
+/*template<class Builder>
 vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
     Builder& encoder_bwd, unsigned int feat_dim)
 {
@@ -185,6 +189,72 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<int
         ik++;
     }
 
+
+    return src_bwd;
+}
+*/
+template<class Builder>
+vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
+    Builder& encoder_bwd, unsigned int feat_dim)
+{
+    size_t ly;
+    unsigned int nutt = source.size();
+    /// get the maximum length of utternace from all speakers
+    vector<int> vlen;
+    bool bsamelength = true;
+    slen = 0;
+    for (auto p : source)
+    {
+        slen = (slen < p.size()) ? p.size() : slen;
+        vlen.push_back(p.size());
+        if (slen != p.size())
+        {
+            bsamelength = false;
+        }
+    }
+
+    Expression e_zero = input(cg, { feat_dim }, &zero);
+    vector<Expression> v_h_tm1;
+    std::vector<Expression> src_bwd(slen);
+
+    /// prepare for masking
+    unsigned encoder_hid_dim = encoder_bwd.get_hidden_dim();
+    vector<cnn::real> mask_zeros(encoder_hid_dim);
+    Expression e_m_zero = input(cg, { encoder_hid_dim }, mask_zeros);
+
+    for (int t = slen - 1; t >= 0; --t) {
+
+        vector<Expression> vm;
+        vector<bool> vmask(nutt, true);
+
+        for (size_t k = 0; k < nutt; k++)
+        {
+            int j = vlen[k] - t - 1;
+            if (j >= 0)
+            {
+                vm.push_back(lookup(cg, p_cs, source[k][vlen[k] - 1 - j]));
+            }
+            else
+            {
+                vm.push_back(e_zero);
+                vmask[k] = false;
+            }
+        }
+
+        Expression i_x_t = concatenate_cols(vm);
+
+
+        src_bwd[t] = encoder_bwd.add_input(v_h_tm1, i_x_t);
+
+        v_h_tm1 = encoder_bwd.final_s();
+        if (v_h_tm1.size() > 0)
+        {
+            /// reset hidden state if this instance is not yet valid
+            v_h_tm1 = mask(v_h_tm1, vmask, nutt, encoder_hid_dim, e_m_zero);
+        }
+    }
+
+    /// process RNN output to extract slices that correspond to the last time slices of each sentence
 
     return src_bwd;
 }
