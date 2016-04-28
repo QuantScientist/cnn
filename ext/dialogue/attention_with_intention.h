@@ -2061,12 +2061,15 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            size_t top_beam_width = 0;
-            while (!new_chart.empty() )
+            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
             {
-                chart.push(new_chart.top());
-                new_chart.pop();
-                top_beam_width++;
+                if (new_chart.top().cost > best_score - beam_width)
+                {
+                    chart.push(new_chart.top());
+                    new_chart.pop();
+                }
+                else
+                    break;
             }
             it++;
         }
@@ -2178,12 +2181,15 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            size_t top_beam_width = 0;
-            while (!new_chart.empty() )
+            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
             {
-                chart.push(new_chart.top());
-                new_chart.pop();
-                top_beam_width++;
+                if (new_chart.top().cost > best_score - beam_width)
+                {
+                    chart.push(new_chart.top());
+                    new_chart.pop();
+                }
+                else
+                    break;
             }
             it++;
         }
@@ -2298,12 +2304,15 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            size_t top_beam_width = 0;
-            while (!new_chart.empty())
+            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
             {
-                chart.push(new_chart.top());
-                new_chart.pop();
-                top_beam_width++;
+                if (new_chart.top().cost > best_score - beam_width)
+                {
+                    chart.push(new_chart.top());
+                    new_chart.pop();
+                }
+                else
+                    break;
             }
             it++;
         }
@@ -2424,12 +2433,15 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            size_t top_beam_width = 0;
-            while (!new_chart.empty())
+            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
             {
-                chart.push(new_chart.top());
-                new_chart.pop();
-                top_beam_width++;
+                if (new_chart.top().cost > best_score - beam_width)
+                {
+                    chart.push(new_chart.top());
+                    new_chart.pop();
+                }
+                else
+                    break;
             }
             it++;
         }
