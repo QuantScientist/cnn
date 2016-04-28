@@ -59,4 +59,9 @@ typedef float real;
 
 /// whether to do binary serialization 
 #define BINARY_BOOST
+
+/// for beam search decoder to control the numaximum number of hypothesis
+/// for speed-up
+#define MAX_NUMBER_OF_HYPOTHESIS 200
+
 };
