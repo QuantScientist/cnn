@@ -133,6 +133,7 @@ public:
  public:
   unsigned layers;  /// number of layers
   std::vector<unsigned> input_dims;  /// input dimension at each layer
+  unsigned get_hidden_dim() { return input_dims[HIDDEN_LAYER]; }
  private:
   // the state machine ensures that the caller is behaving
   RNNStateMachine sm;
