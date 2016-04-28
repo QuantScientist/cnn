@@ -51,5 +51,9 @@ examples/nlm
 *.out
 *.app
 
+#bak file
+*.bak
+*.bk
+
 .RData
 .RHistory
