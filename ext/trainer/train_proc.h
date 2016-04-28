@@ -85,6 +85,7 @@ extern int beam_search_decode;
 extern cnn::real lambda; // = 1e-6;
 extern int repnumber;
 extern int rerankIDF;
+extern int reinforceIDF;
 
 extern Sentence prv_response;
 
@@ -776,8 +777,11 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
     size_t turn_id = 0;
     size_t i_turns = 0;
     PTurn prv_turn, new_turn, new_prv_turn;
+
     BleuMetric bleuScore;
     bleuScore.Initialize();
+
+    IDFMetric idfScore(mv_idf);
 
     bool do_sampling = false;
     cnn::real rng_value = rand() / (RAND_MAX + 0.0);
@@ -801,7 +805,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
     {
         if (do_sampling)
         {
-            vector<string> sref, srec;
+            
             vector<Sentence> v_input, v_prv_response;
 
             v_bleu_score.clear();
@@ -827,25 +831,56 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
             size_t k = 0;
             for (auto &q : res)
             {
+                if (reinforceIDF <= 0)
+                {
+                    vector<string> sref, srec;
+                    if (verbose) cout << "ref response: ";
+                    for (auto p : turn[k].second){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        sref.push_back(sd.Convert(p));
+                    }
+                    if (verbose) cout << endl;
 
-                sref.clear();
-                if (verbose) cout << "ref response: ";
-                for (auto p : turn[k].second){
-                    if (verbose) cout << sd.Convert(p) << " ";
-                    sref.push_back(sd.Convert(p));
+
+                    srec.clear();
+                    if (verbose) cout << "res response: ";
+                    for (auto p : q){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        srec.push_back(sd.Convert(p));
+                    }
+                    if (verbose) cout << endl;
+
+                    cnn::real score;  
+                    score = bleuScore.GetSentenceScore(sref, srec);
+                    v_bleu_score.push_back(score);
                 }
-                if (verbose) cout << endl;
+                else
+                {
+                    vector<int> sref, srec;
+                    if (verbose) cout << "ref response: ";
+                    for (auto p : turn[k].second){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        sref.push_back(p);
+                    }
+                    if (verbose) cout << endl;
 
-                srec.clear();
-                if (verbose) cout << "res response: ";
-                for (auto p : q){
-                    if (verbose) cout << sd.Convert(p) << " ";
-                    srec.push_back(sd.Convert(p));
+
+                    srec.clear();
+                    if (verbose) cout << "res response: ";
+                    for (auto p : q){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        srec.push_back(p);
+                    }
+                    if (verbose) cout << endl;
+
+                    cnn::real score;
+                    score = idfScore.GetSentenceScore(sref, srec).second;
+                    v_bleu_score.push_back(score);
+                    
                 }
-                if (verbose) cout << endl;
+                
 
-                cnn::real score = bleuScore.GetSentenceScore(sref, srec);
-                v_bleu_score.push_back(score);
+                
 
                 k++;
             }
