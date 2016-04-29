@@ -223,8 +223,8 @@ void AdadeltaTrainer::update(cnn::real nutt, cnn::real scale) {
   for (auto p : model->lookup_parameters_list()) {
     vector<Tensor>& hgvx = hlg[pi].h;
     vector<Tensor>& hdvx = hld[pi].h;
-    for (auto g : p->grads) {
-      unsigned i = g.first;
+    for (auto q : p->grads) {
+      unsigned i = q.first;
       Tensor& hgv = hgvx[i];
       Tensor& hdv = hdvx[i];
       auto& g = scale * gscale * nutt_scale * *p->grads[i];

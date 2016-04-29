@@ -197,7 +197,6 @@ template<class Builder>
 vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
     Builder& encoder_bwd, unsigned int feat_dim)
 {
-    size_t ly;
     unsigned int nutt = source.size();
     /// get the maximum length of utternace from all speakers
     vector<int> vlen;
