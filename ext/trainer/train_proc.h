@@ -1116,6 +1116,9 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
                 v_errs.push_back(p);
         }
 
+        Expression i_total_err = sum(v_errs);
+        dloss += as_scalar(cg.get_value(i_total_err));
+
         if (sgd != nullptr && update_model)
         {
             cg.backward();
@@ -1126,9 +1129,6 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
         new_prv_turn = new_turn;
         turn_id++;
         i_turns++;
-
-        Expression i_total_err = sum(v_errs);
-        dloss += as_scalar(cg.get_value(i_total_err));
 
         dchars_s += am.swords;
         dchars_t += am.twords;
