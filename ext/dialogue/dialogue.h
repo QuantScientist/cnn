@@ -410,7 +410,6 @@ public:
         int t = 0;
 
         start_new_instance(source, cg);
-        cg.incremental_forward();
 
         Expression i_bias = parameter(cg, p_bias);
         Expression i_R = parameter(cg, p_R);
@@ -424,7 +423,7 @@ public:
         {
             Expression i_y_t = decoder_step(vtmp, cg);
             Expression i_r_t = reshape(i_R * i_y_t, { nutt * vocab_size_tgt });
-            cg.incremental_forward();
+
             need_decode = false;
             vtmp.clear();
             for (size_t k = 0; k < nutt; k++)

@@ -2504,7 +2504,6 @@ public:
         int t = 0;
 
         start_new_instance(prv_response, source, cg);
-        cg.incremental_forward();
 
         Expression i_bias = parameter(cg, p_bias);
         Expression i_R = parameter(cg, p_R);

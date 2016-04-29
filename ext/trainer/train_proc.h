@@ -942,8 +942,6 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
                 v_errs.push_back(p);
         }
 
-        cg.incremental_forward();
-
         prv_turn = turn;
         new_prv_turn = new_turn;
         turn_id++;
@@ -1742,7 +1740,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
                     {
                         am.build_graph(prv_turn, i_turn, cg);
                     }
-                    cg.incremental_forward();
+
                     turn_id++;
 
                     if (verbose)
@@ -1922,7 +1920,6 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
                     am.build_graph(prv_turn, i_turn, cg);
                 }
 
-                cg.incremental_forward();
                 turn_id++;
 
                 t++;
@@ -2081,7 +2078,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
                     {
                         am.build_graph(prv_turn, i_turn, cg);
                     }
-                    cg.incremental_forward();
+
                     turn_id++;
 
                     if (verbose)
