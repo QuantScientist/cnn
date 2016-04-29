@@ -687,7 +687,6 @@ public:
                 Expression ydist = softmax(i_scores); // compiler warning, but see below
 
                 // find the top k best next words
-                unsigned w = 0;
                 //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
                 auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
                 real mscore = log(*max_element(dist.begin(), dist.end())) + hprev.cost;
@@ -819,7 +818,6 @@ public:
                 Expression ydist = softmax(i_scores); // compiler warning, but see below
 
                 // find the top k best next words
-                unsigned w = 0;
                 //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
                 auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
                 real mscore = log(*max_element(dist.begin(), dist.end())) + hprev.cost;
@@ -2025,7 +2023,6 @@ public:
                 Expression ydist = log_softmax(i_scores); // compiler warning, but see below
 
                 // find the top k best next words
-                unsigned w = 0;
                 //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
                 auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
                 real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
@@ -2145,7 +2142,6 @@ public:
                 Expression ydist = log_softmax(i_scores); // compiler warning, but see below
 
                 // find the top k best next words
-                unsigned w = 0;
                 //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
                 auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
                 real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
@@ -2268,7 +2264,6 @@ public:
                 Expression ydist = log_softmax(i_scores); // compiler warning, but see below
 
                 // find the top k best next words
-                unsigned w = 0;
                 //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
                 auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
                 real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
@@ -2397,7 +2392,6 @@ public:
                 Expression ydist = log_softmax(i_scores); // compiler warning, but see below
 
                 // find the top k best next words
-                unsigned w = 0;
                 //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
                 auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
                 real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
