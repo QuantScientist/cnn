@@ -274,13 +274,29 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         ptrTrainer->get_idf(vm, idfcorpus, sd);
     }
 
-    if (vm.count("reinforce") && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
+    if ((vm.count("reinforce") || vm.count("reinforceIDF")) && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
         // a mirrow of the agent to generate decoding results so that their results can be evaluated
         // this is not efficient implementation, better way is to share model parameters
         int n_reinforce_train = vm["num_reinforce_train"].as<int>();
         cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
         reset_smoothed_ppl(ptrTrainer->ppl_hist);
+
+        if (vm.count("outputfile") == 0)
+        {
+            cerr << "need outputfile argument" << endl;
+            throw("need outputfile argument");
+        }
+
+        if (vm.count("reward_baseline") == 0)
+        {
+            cerr << "need reward_baseline argument" << endl;
+            throw("need reward_baseline argument");
+        }
+
+        string output_file_name = vm["outputfile"].as<string>();
+        cnn::real reward_baseline = vm["reward_baseline"].as<cnn::real>();
+
         for (size_t k_reinforce = 0; k_reinforce <= n_reinforce_train; k_reinforce++)
         {
             Model model_mirrow;
@@ -303,7 +319,9 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
 
             size_t each_epoch = min<int>(2, vm["epochs"].as<int>() / n_reinforce_train);
-            ptrTrainer->REINFORCEtrain(model, hred, hred_agent_mirrow, training, devel, *sgd, fname, sd, each_epoch * n_reinforce_train, vm["nparallel"].as<int>(), largest_cost, vm["reward_baseline"].as<cnn::real>(), threshold_prob);
+            ptrTrainer->split_data_batch_reinforce_train(vm["train"].as<string>(), model, hred, hred_agent_mirrow, 
+                devel, *sgd, sd, output_file_name, each_epoch * n_reinforce_train, vm["nparallel"].as<int>(), vm["epochsize"].as<int>(),
+                largest_cost, reward_baseline, threshold_prob, vm["do_gradient_check"].as<bool>());
         }
     }
     else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
