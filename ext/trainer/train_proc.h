@@ -471,7 +471,6 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
             if (rerankIDF > 0)
             {
                 cnn::real max_idf_score = 0;
-                cnn::real idf_score = 0;
                 size_t kbest_idx = 0;
 
                 for (size_t i = 0; i < res_kbest.size(); i++)
@@ -1670,7 +1669,6 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     save_cnn_model(out_file, &model);
 
@@ -1710,7 +1708,6 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
                 cerr << "diag = " << order[si % order.size()] << endl;
 
             /// find portion to train
-            bool b_trained = false;
             // see random number distributions
             auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
             int i_turn_to_train = rng();
@@ -1971,7 +1968,6 @@ void TrainProcess<AM_t>::collect_sample_responses(AM_t& am, Corpus &training)
     am.clear_candidates();
     for (auto & ds : training){
         vector<SentencePair> prv_turn;
-        size_t turn_id = 0;
 
         for (auto& spair : ds){
             SentencePair turn = spair;
@@ -1990,7 +1986,6 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
 {
     cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
-    unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
     boost::mt19937 rng;                 // produces randomness out of thin air
 
@@ -2009,9 +2004,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     }
 
     bool first = true;
-    int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     save_cnn_model(out_file, &model);
 
@@ -2024,7 +2017,6 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
         cnn::real dloss = 0;
         cnn::real dchars_s = 0;
         cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
 
         for (unsigned iter = 0; iter < report_every_i; ++iter) {
 
@@ -2048,7 +2040,6 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
                 cerr << "diag = " << order[si % order.size()] + min_diag_id << endl;
 
             /// find portion to train
-            bool b_trained = false;
             // see random number distributions
             auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
             int i_turn_to_train = rng();
