@@ -274,7 +274,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         ptrTrainer->get_idf(vm, idfcorpus, sd);
     }
 
-    if ((vm.count("reinforce") || vm.count("reinforceIDF")) && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
+    if ((vm.count("reinforce") || reinforceIDF >0) && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
         // a mirrow of the agent to generate decoding results so that their results can be evaluated
         // this is not efficient implementation, better way is to share model parameters
