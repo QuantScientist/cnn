@@ -224,8 +224,7 @@ public:
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
-    void REINFORCE_segmental_forward_backward(Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
-        cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline, cnn::real threshold_prob_for_sampling, bool update_model);
+    void REINFORCE_segmental_forward_backward(Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt, Trainer* sgd, Dict& sd, cnn::real reward_baseline, cnn::real threshold_prob_for_sampling, TrainingScores *scores, bool update_model);
 
 public:
     /// for LDA
@@ -961,8 +960,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
 }
 
 template <class AM_t>
-void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am_mirrow, PDialogue &v_v_dialogues, int nutt,
-    cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline, cnn::real threshold_prob_for_sampling, bool update_model)
+void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am_mirrow, PDialogue &v_v_dialogues, int nutt, Trainer* sgd, Dict& sd, cnn::real reward_baseline, cnn::real threshold_prob_for_sampling, TrainingScores *scores, bool update_model)
 {
     size_t turn_id = 0;
     size_t i_turns = 0;
@@ -1116,7 +1114,6 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
         }
 
         Expression i_total_err = sum(v_errs);
-        dloss += as_scalar(cg.get_value(i_total_err));
 
         if (sgd != nullptr && update_model)
         {
@@ -1129,9 +1126,14 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
         turn_id++;
         i_turns++;
 
-        dchars_s += am.swords;
-        dchars_t += am.twords;
+        Tensor tv = cg.get_value(i_total_err);
+        TensorTools::PushElementsToMemory(scores->training_score_current_location,
+            scores->training_score_buf_size,
+            scores->training_scores,
+            tv);
 
+        scores->swords += am.swords;
+        scores->twords += am.twords;
     }
 
 }
@@ -1435,7 +1437,7 @@ void TrainProcess<AM_t>::REINFORCE_batch_train(Model &model, AM_t &am, AM_t &am_
                 cerr << endl;
             }
 
-            REINFORCE_segmental_forward_backward(am, am_agent_mirrow, v_dialogues, nutt, dloss, dchars_s, dchars_t, &sgd, td, reward_baseline, threshold_prob_for_sampling, true);
+            REINFORCE_segmental_forward_backward(am, am_agent_mirrow, v_dialogues, nutt, &sgd, td, reward_baseline, threshold_prob_for_sampling, training_set_scores, true);
 
             si += nutt;
             lines += nutt;
