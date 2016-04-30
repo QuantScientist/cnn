@@ -990,11 +990,9 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
         vector<Expression> v_errs; /// the errors to be minimized
         vector<Expression> i_err;
 
-        ComputationGraph cg;
-
         if (do_sampling)
         {
-
+            ComputationGraph cg_sampling;
             vector<Sentence> v_input, v_prv_response;
 
             v_bleu_score.clear();
@@ -1010,11 +1008,11 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
 
             if (turn_id == 0)
             {
-                res = am_mirrow.batch_decode(v_input, cg, sd);
+                res = am_mirrow.batch_decode(v_input, cg_sampling, sd);
             }
             else
             {
-                res = am_mirrow.batch_decode(v_prv_response, v_input, cg, sd);
+                res = am_mirrow.batch_decode(v_prv_response, v_input, cg_sampling, sd);
             }
 
             size_t k = 0;
@@ -1065,19 +1063,45 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
                     cnn::real score;
                     score = idfScore.GetSentenceScore(sref, srec).second;
                     v_bleu_score.push_back(score);
-
                 }
 
                 k++;
             }
 
-            new_turn = turn;
-            for (size_t k = 0; k < nutt; k++)
-            {
-                new_turn[k].second = res[k];
-            }
+            /// use the decoded results as training signals
+            /// reward uses either BLEU or IDF scores. these scores are associated with the decoded results
+            /// training will encourage high BLEU or IDF scores, given these decoded results
+            /// notice that BLEU score is a measure against true reference. therefore, the higher the BLEU 
+            /// score, the closer or the better the decoded sequence is aligned to the reference.
+            /// however, for IDF score, the highest IDF scores may correspond to many rare words that 
+            /// don't make sense. 
 
-            /// get errors from the decoded results
+            /// therefore, for IDF reward, we should use true reference as training signal
+            /// in this case, the system is trained with references that have larger IDF values
+            new_turn = turn;
+            if (reinforceIDF <= 0)
+            {
+                /// this corresponds to using BLEU score, so should use decoded signal to encourage 
+                /// learn from decoded context in order to generate high BLEU score outputs
+                for (size_t k = 0; k < nutt; k++)
+                {
+                    new_turn[k].second = res[k];
+                }
+            }
+            else
+            {
+                /// need to keep using the reference signals, as 
+                /// high IDF doesn't mean good outputs
+            }
+        }
+ 
+
+        /// graph for learning
+        ComputationGraph cg;
+
+        /// get errors from the decoded results
+        if (do_sampling)
+        {
             if (turn_id == 0)
             {
                 i_err = am.build_graph(new_turn, cg);
