@@ -1115,6 +1115,7 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
 
         Expression i_total_err = sum(v_errs);
 
+        Tensor tv = cg.get_value(i_total_err);
         if (sgd != nullptr && update_model)
         {
             cg.backward();
@@ -1126,7 +1127,6 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
         turn_id++;
         i_turns++;
 
-        Tensor tv = cg.get_value(i_total_err);
         TensorTools::PushElementsToMemory(scores->training_score_current_location,
             scores->training_score_buf_size,
             scores->training_scores,

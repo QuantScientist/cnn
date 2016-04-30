@@ -316,7 +316,14 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             load_cnn_model(fname, &model_mirrow);
 
             cnn::real threshold_prob;
-            threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
+            if (vm.count("threshold_prob"))
+            {
+                threshold_prob = vm["threshold_prob"].as<cnn::real>();
+                if (threshold_prob > 1 || threshold_prob < 0)
+                    throw("invalid threshold_prob value");
+            }
+            else
+                threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
 
             size_t each_epoch = min<int>(2, vm["epochs"].as<int>() / n_reinforce_train);
             ptrTrainer->split_data_batch_reinforce_train(vm["train"].as<string>(), model, hred, hred_agent_mirrow, 
