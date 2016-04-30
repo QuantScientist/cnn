@@ -666,6 +666,40 @@ vector<vector<Expression>> rnn_h0_for_each_utt(vector<Expression> v_h0, unsigned
     return v_each_h0;
 }
 
+/// mask for each utterance
+/// assume that v_h0 has [layers][nutt] structure
+/// where Expression in v_h0 is [nutt * featdim matrix
+vector<Expression> mask(vector<Expression> v_h0, const vector<bool>& mask, unsigned nutt, unsigned feat_dim, const Expression & zeros)
+{
+    vector<Expression> vres;
+    assert(nutt == mask.size());
+    /// first check if there are some utts to mask
+    bool b_no_need_mask = true;
+    for (auto p : mask)
+        b_no_need_mask &= p;
+
+    if (b_no_need_mask == true)
+        return v_h0;
+
+    int nlayers = v_h0.size();
+
+    for (size_t ly = 0; ly < v_h0.size(); ly++)
+    {
+        vector<Expression> v_each_h0;
+        Expression i_h = reshape(v_h0[ly], { (nutt * feat_dim) });
+        for (size_t k = 0; k < nutt; k++)
+        {
+            if (mask[k])
+                v_each_h0.push_back(pickrange(i_h, k * feat_dim, (k + 1)*feat_dim));
+            else
+                v_each_h0.push_back(zeros);
+        }
+
+        vres.push_back(concatenate_cols(v_each_h0));
+    }
+    return vres;
+}
+
 vector<cnn::real> get_value(Expression nd, ComputationGraph& cg)
 {
     /// get the top output

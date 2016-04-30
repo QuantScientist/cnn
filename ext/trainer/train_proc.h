@@ -85,6 +85,7 @@ extern int beam_search_decode;
 extern cnn::real lambda; // = 1e-6;
 extern int repnumber;
 extern int rerankIDF;
+extern int reinforceIDF;
 
 extern Sentence prv_response;
 
@@ -181,8 +182,24 @@ public:
         Trainer &sgd, string out_file, int max_epochs,
         bool bcharlevel, bool nosplitdialogue);
     void train(Model &model, Proc &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs);
-    void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
     void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding);
+
+
+    void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
+    void REINFORCE_batch_train(Model &model, Proc &am, Proc &am_agent_mirrow,
+        Corpus &training, Corpus &devel,
+        Trainer &sgd, Dict& td, string out_file, int max_epochs, int nparallel, cnn::real &best, bool segmental_training,
+        bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic,
+        cnn::real reward_baseline,
+        cnn::real threshold_prob_for_sampling);
+    void split_data_batch_reinforce_train(string train_filename, Model &model,
+        Proc &hred, Proc & hred_agent_mirrow,
+        Corpus &devel,
+        Trainer &sgd, Dict& td,
+        string out_file, 
+        int max_epochs, int nparallel, int epochsize,
+        cnn::real & largest_cost, cnn::real reward_baseline, cnn::real threshold_prob,
+        bool do_gradient_check);
 
     /** report perplexity
 
@@ -207,6 +224,8 @@ public:
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
+    void REINFORCE_segmental_forward_backward(Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
+        cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline, cnn::real threshold_prob_for_sampling, bool update_model);
 
 public:
     /// for LDA
@@ -452,7 +471,6 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
             if (rerankIDF > 0)
             {
                 cnn::real max_idf_score = 0;
-                cnn::real idf_score = 0;
                 size_t kbest_idx = 0;
 
                 for (size_t i = 0; i < res_kbest.size(); i++)
@@ -776,8 +794,11 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
     size_t turn_id = 0;
     size_t i_turns = 0;
     PTurn prv_turn, new_turn, new_prv_turn;
+
     BleuMetric bleuScore;
     bleuScore.Initialize();
+
+    IDFMetric idfScore(mv_idf);
 
     bool do_sampling = false;
     cnn::real rng_value = rand() / (RAND_MAX + 0.0);
@@ -801,7 +822,7 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
     {
         if (do_sampling)
         {
-            vector<string> sref, srec;
+            
             vector<Sentence> v_input, v_prv_response;
 
             v_bleu_score.clear();
@@ -827,25 +848,53 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
             size_t k = 0;
             for (auto &q : res)
             {
+                if (reinforceIDF <= 0)
+                {
+                    vector<string> sref, srec;
+                    if (verbose) cout << "ref response: ";
+                    for (auto p : turn[k].second){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        sref.push_back(sd.Convert(p));
+                    }
+                    if (verbose) cout << endl;
 
-                sref.clear();
-                if (verbose) cout << "ref response: ";
-                for (auto p : turn[k].second){
-                    if (verbose) cout << sd.Convert(p) << " ";
-                    sref.push_back(sd.Convert(p));
+
+                    srec.clear();
+                    if (verbose) cout << "res response: ";
+                    for (auto p : q){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        srec.push_back(sd.Convert(p));
+                    }
+                    if (verbose) cout << endl;
+
+                    cnn::real score;  
+                    score = bleuScore.GetSentenceScore(sref, srec);
+                    v_bleu_score.push_back(score);
                 }
-                if (verbose) cout << endl;
+                else
+                {
+                    vector<int> sref, srec;
+                    if (verbose) cout << "ref response: ";
+                    for (auto p : turn[k].second){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        sref.push_back(p);
+                    }
+                    if (verbose) cout << endl;
 
-                srec.clear();
-                if (verbose) cout << "res response: ";
-                for (auto p : q){
-                    if (verbose) cout << sd.Convert(p) << " ";
-                    srec.push_back(sd.Convert(p));
+
+                    srec.clear();
+                    if (verbose) cout << "res response: ";
+                    for (auto p : q){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        srec.push_back(p);
+                    }
+                    if (verbose) cout << endl;
+
+                    cnn::real score;
+                    score = idfScore.GetSentenceScore(sref, srec).second;
+                    v_bleu_score.push_back(score);
+                    
                 }
-                if (verbose) cout << endl;
-
-                cnn::real score = bleuScore.GetSentenceScore(sref, srec);
-                v_bleu_score.push_back(score);
 
                 k++;
             }
@@ -892,8 +941,6 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
                 v_errs.push_back(p);
         }
 
-        cg.incremental_forward();
-
         prv_turn = turn;
         new_prv_turn = new_turn;
         turn_id++;
@@ -911,6 +958,182 @@ void TrainProcess<AM_t>::REINFORCE_nosegmental_forward_backward(Model &model, AM
         cg.backward();
         sgd->update(am.twords);
     }
+}
+
+template <class AM_t>
+void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am_mirrow, PDialogue &v_v_dialogues, int nutt,
+    cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline, cnn::real threshold_prob_for_sampling, bool update_model)
+{
+    size_t turn_id = 0;
+    size_t i_turns = 0;
+    PTurn prv_turn, new_turn, new_prv_turn;
+
+    BleuMetric bleuScore;
+    bleuScore.Initialize();
+
+    IDFMetric idfScore(mv_idf);
+
+    bool do_sampling = false;
+    cnn::real rng_value = rand() / (RAND_MAX + 0.0);
+    if (rng_value >= threshold_prob_for_sampling)
+    {
+        do_sampling = true;
+    }
+
+    am.reset();
+    am_mirrow.reset();
+
+    /// train on two segments of a dialogue
+    vector<cnn::real> v_bleu_score;
+
+    for (auto &turn : v_v_dialogues)
+    {
+        vector<Sentence> res;
+        vector<Expression> v_errs; /// the errors to be minimized
+        vector<Expression> i_err;
+
+        ComputationGraph cg;
+
+        if (do_sampling)
+        {
+
+            vector<Sentence> v_input, v_prv_response;
+
+            v_bleu_score.clear();
+
+            for (auto& p : turn)
+            {
+                v_input.push_back(p.first);
+            }
+            for (auto&p : prv_turn)
+            {
+                v_prv_response.push_back(p.second);
+            }
+
+            if (turn_id == 0)
+            {
+                res = am_mirrow.batch_decode(v_input, cg, sd);
+            }
+            else
+            {
+                res = am_mirrow.batch_decode(v_prv_response, v_input, cg, sd);
+            }
+
+            size_t k = 0;
+            for (auto &q : res)
+            {
+                if (reinforceIDF <= 0)
+                {
+                    vector<string> sref, srec;
+                    if (verbose) cout << "ref response: ";
+                    for (auto p : turn[k].second){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        sref.push_back(sd.Convert(p));
+                    }
+                    if (verbose) cout << endl;
+
+
+                    srec.clear();
+                    if (verbose) cout << "res response: ";
+                    for (auto p : q){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        srec.push_back(sd.Convert(p));
+                    }
+                    if (verbose) cout << endl;
+
+                    cnn::real score;
+                    score = bleuScore.GetSentenceScore(sref, srec);
+                    v_bleu_score.push_back(score);
+                }
+                else
+                {
+                    vector<int> sref, srec;
+                    if (verbose) cout << "ref response: ";
+                    for (auto p : turn[k].second){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        sref.push_back(p);
+                    }
+                    if (verbose) cout << endl;
+
+
+                    srec.clear();
+                    if (verbose) cout << "res response: ";
+                    for (auto p : q){
+                        if (verbose) cout << sd.Convert(p) << " ";
+                        srec.push_back(p);
+                    }
+                    if (verbose) cout << endl;
+
+                    cnn::real score;
+                    score = idfScore.GetSentenceScore(sref, srec).second;
+                    v_bleu_score.push_back(score);
+
+                }
+
+                k++;
+            }
+
+            new_turn = turn;
+            for (size_t k = 0; k < nutt; k++)
+            {
+                new_turn[k].second = res[k];
+            }
+
+            /// get errors from the decoded results
+            if (turn_id == 0)
+            {
+                i_err = am.build_graph(new_turn, cg);
+            }
+            else
+            {
+                i_err = am.build_graph(new_prv_turn, new_turn, cg);
+            }
+        }
+        else{
+            /// get errors from the true reference
+            if (turn_id == 0)
+            {
+                i_err = am.build_graph(turn, cg);
+            }
+            else
+            {
+                i_err = am.build_graph(prv_turn, turn, cg);
+            }
+        }
+
+        if (do_sampling)
+        {
+            for (size_t k = 0; k < nutt; k++)
+            {
+                Expression t_err = i_err[k];
+                v_errs.push_back(t_err * (v_bleu_score[k] - reward_baseline));  /// multiply with reward
+            }
+        }
+        else
+        {
+            for (auto &p : i_err)
+                v_errs.push_back(p);
+        }
+
+        Expression i_total_err = sum(v_errs);
+        dloss += as_scalar(cg.get_value(i_total_err));
+
+        if (sgd != nullptr && update_model)
+        {
+            cg.backward();
+            sgd->update(am.twords);
+        }
+
+        prv_turn = turn;
+        new_prv_turn = new_turn;
+        turn_id++;
+        i_turns++;
+
+        dchars_s += am.swords;
+        dchars_t += am.twords;
+
+    }
+
 }
 
 template <class AM_t>
@@ -1127,6 +1350,153 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
 
 
 /* the following does mutiple sentences per minibatch
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::REINFORCE_batch_train(Model &model, AM_t &am, AM_t &am_agent_mirrow, 
+    Corpus &training, Corpus &devel,
+    Trainer &sgd, Dict& td, string out_file, int max_epochs, int nparallel, cnn::real &best, bool segmental_training,
+    bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic, 
+    cnn::real reward_baseline, 
+    cnn::real threshold_prob_for_sampling
+    )
+{
+    if (verbose)
+        cout << "batch_train: ";
+    unsigned report_every_i = 50;
+    unsigned dev_every_i_reports = 1000;
+    unsigned si = training.size(); /// number of dialgoues in training
+    vector<unsigned> order(training.size());
+    for (unsigned i = 0; i < order.size(); ++i) order[i] = i;
+
+    bool first = true;
+    int report = 0;
+    unsigned lines = 0;
+
+    if (b_inside_logic)
+        reset_smoothed_ppl(ppl_hist);
+
+    int prv_epoch = -1;
+    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
+    size_t i_stt_diag_id = 0;
+
+    /// if no update of sgd in this function, need to train with all data in one pass and then return
+    if (sgd_update_epochs == false)
+    {
+        report_every_i = training.size();
+        si = 0;
+    }
+
+    while ((sgd_update_epochs && sgd.epoch < max_epochs) ||  /// run multiple passes of data
+        (!sgd_update_epochs && si < training.size()))  /// run one pass of the data
+    {
+        Timer iteration("completed in");
+        cnn::real dloss = 0;
+        cnn::real dchars_s = 0;
+        cnn::real dchars_t = 0;
+
+        training_set_scores->reset();
+
+        PDialogue v_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
+
+        for (unsigned iter = 0; iter < report_every_i;) {
+            if (si == training.size()) {
+                si = 0;
+                if (first) { first = false; }
+                else if (sgd_update_epochs){
+                    sgd.update_epoch();
+                    lines -= training.size();
+                }
+            }
+
+            if (si % order.size() == 0) {
+                cerr << "**SHUFFLE\n";
+                /// shuffle number of turns
+                shuffle(training_numturn2did.vNumTurns.begin(), training_numturn2did.vNumTurns.end(), *rndeng);
+                i_stt_diag_id = 0;
+                v_selected = vector<bool>(training.size(), false);
+                for (auto p : training_numturn2did.mapNumTurn2DialogId){
+                    /// shuffle dailogues with the same number of turns
+                    random_shuffle(p.second.begin(), p.second.end());
+                }
+                v_selected.assign(training.size(), false);
+            }
+
+            Dialogue prv_turn;
+            vector<int> i_sel_idx = get_same_length_dialogues(training, nparallel, i_stt_diag_id, v_selected, v_dialogues, training_numturn2did);
+            size_t nutt = i_sel_idx.size();
+            if (nutt == 0)
+                break;
+
+            if (verbose)
+            {
+                cerr << "selected " << nutt << " :  ";
+                for (auto p : i_sel_idx)
+                    cerr << p << " ";
+                cerr << endl;
+            }
+
+            REINFORCE_segmental_forward_backward(am, am_agent_mirrow, v_dialogues, nutt, dloss, dchars_s, dchars_t, &sgd, td, reward_baseline, threshold_prob_for_sampling, true);
+
+            si += nutt;
+            lines += nutt;
+            iter += nutt;
+        }
+
+        training_set_scores->compute_score();
+
+        sgd.status();
+        iteration.WordsPerSecond(training_set_scores->twords + training_set_scores->swords);
+        cerr << "\n***Train " << (lines / (cnn::real)training.size()) * 100 << " %100 of epoch[" << sgd.epoch << "] E = " << (training_set_scores->dloss / training_set_scores->twords) << " ppl=" << exp(training_set_scores->dloss / training_set_scores->twords) << ' ';
+
+
+        vector<SentencePair> vs;
+        for (auto&p : v_dialogues)
+            vs.push_back(p[0]);
+        vector<SentencePair> vres;
+        am.respond(vs, vres, sd);
+
+        // show score on dev data?
+        report++;
+
+        if (b_inside_logic && devel.size() > 0 && (floor(sgd.epoch) != prv_epoch
+            || (report % dev_every_i_reports == 0
+            || fmod(lines, (cnn::real)training.size()) == 0.0)))
+        {
+            cnn::real ddloss = 0;
+            cnn::real ddchars_s = 0;
+            cnn::real ddchars_t = 0;
+
+            ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
+
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
+            if (ddloss < best) {
+                best = ddloss;
+
+                save_cnn_model(out_file, &model);
+
+            }
+            else{
+                sgd.eta0 *= 0.5; /// reduce learning rate
+                sgd.eta *= 0.5; /// reduce learning rate
+            }
+            cerr << "\n***DEV [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (ddloss / ddchars_t) << " ppl=" << exp(ddloss / ddchars_t) << ' ';
+        }
+
+        prv_epoch = floor(sgd.epoch);
+
+        if (sgd_update_epochs == false)
+        {
+            /// because there is no update on sgd epoch, this loop can run forever. 
+            /// so just run one iteration and quit
+            break;
+        }
+        else{
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
+        }
+    }
+}
+
+/* the following does mutiple sentences per minibatch
 @ b_inside_logic : use logic inside of batch to do evaluation on the dev set. if it is false, do dev set evaluation only if sgd.epoch changes
 */
 template <class AM_t>
@@ -1299,7 +1669,6 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
     bool first = true;
     int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     save_cnn_model(out_file, &model);
 
@@ -1339,7 +1708,6 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
                 cerr << "diag = " << order[si % order.size()] << endl;
 
             /// find portion to train
-            bool b_trained = false;
             // see random number distributions
             auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
             int i_turn_to_train = rng();
@@ -1369,7 +1737,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
                     {
                         am.build_graph(prv_turn, i_turn, cg);
                     }
-                    cg.incremental_forward();
+
                     turn_id++;
 
                     if (verbose)
@@ -1549,7 +1917,6 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
                     am.build_graph(prv_turn, i_turn, cg);
                 }
 
-                cg.incremental_forward();
                 turn_id++;
 
                 t++;
@@ -1601,7 +1968,6 @@ void TrainProcess<AM_t>::collect_sample_responses(AM_t& am, Corpus &training)
     am.clear_candidates();
     for (auto & ds : training){
         vector<SentencePair> prv_turn;
-        size_t turn_id = 0;
 
         for (auto& spair : ds){
             SentencePair turn = spair;
@@ -1620,7 +1986,6 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
 {
     cnn::real best = std::numeric_limits<cnn::real>::max();
     unsigned report_every_i = 50;
-    unsigned dev_every_i_reports = 1000;
     unsigned si = training.size(); /// number of dialgoues in training
     boost::mt19937 rng;                 // produces randomness out of thin air
 
@@ -1639,9 +2004,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     }
 
     bool first = true;
-    int report = 0;
     unsigned lines = 0;
-    int epoch = 0;
 
     save_cnn_model(out_file, &model);
 
@@ -1654,7 +2017,6 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
         cnn::real dloss = 0;
         cnn::real dchars_s = 0;
         cnn::real dchars_t = 0;
-        cnn::real dchars_tt = 0;
 
         for (unsigned iter = 0; iter < report_every_i; ++iter) {
 
@@ -1678,7 +2040,6 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
                 cerr << "diag = " << order[si % order.size()] + min_diag_id << endl;
 
             /// find portion to train
-            bool b_trained = false;
             // see random number distributions
             auto rng = std::bind(std::uniform_int_distribution<int>(0, spair.size() - 1), *rndeng);
             int i_turn_to_train = rng();
@@ -1708,7 +2069,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
                     {
                         am.build_graph(prv_turn, i_turn, cg);
                     }
-                    cg.incremental_forward();
+
                     turn_id++;
 
                     if (verbose)
@@ -1880,6 +2241,84 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
             {
                 cnn::real ddloss, ddchars_s, ddchars_t;
                 ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
+
+                ddloss = smoothed_ppl(ddloss, ppl_hist);
+                if (ddloss < largest_dev_cost) {
+                    /// save the model with the best performance on the dev set
+                    largest_dev_cost = ddloss;
+
+                    save_cnn_model(out_file, &model);
+                }
+                else{
+                    sgd.eta0 *= 0.5; /// reduce learning rate
+                    sgd.eta *= 0.5; /// reduce learning rate
+                }
+            }
+#endif
+        }
+
+        trial++;
+    }
+}
+
+/**
+since the tool loads data into memory and that can cause memory exhaustion, this function do sampling of data for each epoch.
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename, Model &model, 
+    AM_t &hred , AM_t& hred_agent_mirrow, 
+    Corpus &devel,
+    Trainer &sgd, Dict& td, 
+    string out_file, 
+    int max_epochs, int nparallel, int epochsize,
+    cnn::real & largest_cost, cnn::real reward_baseline, cnn::real threshold_prob,
+    bool do_gradient_check)
+{
+    cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
+
+    reset_smoothed_ppl(ppl_hist);
+
+    DataReader dr(train_filename);
+    int trial = 0;
+    dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
+    dr.join();
+
+    Corpus training = dr.corpus();
+    training_numturn2did = get_numturn2dialid(training);
+
+    while (sgd.epoch < max_epochs)
+    {
+        Timer this_epoch("this epoch completed in");
+
+        dr.detach();
+        dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
+
+        REINFORCE_batch_train(model, hred, hred_agent_mirrow, 
+            training, devel, sgd, td, out_file, 1, nparallel, largest_cost, false, false, do_gradient_check, false, 
+            reward_baseline, threshold_prob);
+
+        dr.join(); /// synchroze data thread and main thread
+        training = dr.corpus();
+        training_numturn2did = get_numturn2dialid(training);
+
+        if (training.size() == 0)
+        {
+            dr.restart();
+            dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
+            dr.join(); /// make sure data is completely read
+            training = dr.corpus();  /// copy the data from data thread to the data to be used in the main thread
+            training_numturn2did = get_numturn2dialid(training);
+            //#define DEBUG
+#ifndef DEBUG
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
+#endif
+            sgd.update_epoch();
+
+#ifndef DEBUG
+            if (devel.size() > 0)
+            {
+                cnn::real ddloss, ddchars_s, ddchars_t;
+                ddloss = testPPL(model, hred, devel, devel_numturn2did, out_file + ".dev.log", false, ddchars_s, ddchars_t);
 
                 ddloss = smoothed_ppl(ddloss, ppl_hist);
                 if (ddloss < largest_dev_cost) {
