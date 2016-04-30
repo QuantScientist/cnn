@@ -2312,6 +2312,12 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
     Corpus training = dr.corpus();
     training_numturn2did = get_numturn2dialid(training);
 
+    if (training.size() == 0)
+    {
+        cerr << "no content for " << train_filename << endl;
+        throw("no content for training file");
+    }
+
     while (sgd.epoch < max_epochs)
     {
         Timer this_epoch("this epoch completed in");

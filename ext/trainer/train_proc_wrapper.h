@@ -325,7 +325,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             else
                 threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
 
-            size_t each_epoch = min<int>(2, vm["epochs"].as<int>() / n_reinforce_train);
+            size_t each_epoch = max<int>(1, min<int>(2, vm["epochs"].as<int>() / n_reinforce_train));
             ptrTrainer->split_data_batch_reinforce_train(vm["train"].as<string>(), model, hred, hred_agent_mirrow, 
                 devel, *sgd, sd, output_file_name, each_epoch * n_reinforce_train, vm["nparallel"].as<int>(), vm["epochsize"].as<int>(),
                 largest_cost, reward_baseline, threshold_prob, vm["do_gradient_check"].as<bool>());
