@@ -109,7 +109,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         sd.Freeze();
     }
 
-    if ((vm.count("train") > 0 && vm["epochsize"].as<int>() == -1) || vm.count("writedict") > 0 || vm.count("train-lda") > 0 || vm.count("reinforce") > 0)
+    if ((vm.count("train") > 0 && vm["epochsize"].as<int>() == -1) || vm.count("writedict") > 0 || vm.count("train-lda") > 0)
     {
         cerr << "Reading training data from " << vm["train"].as<string>() << "...\n";
         training = read_corpus(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["mbsize"].as<int>(), false,

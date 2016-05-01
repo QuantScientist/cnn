@@ -2321,10 +2321,8 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
     while (sgd.epoch < max_epochs)
     {
         Timer this_epoch("this epoch completed in");
-
         dr.detach();
         dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
-
         REINFORCE_batch_train(model, hred, hred_agent_mirrow, 
             training, devel, sgd, td, out_file, 1, nparallel, largest_cost, false, false, do_gradient_check, false, 
             reward_baseline, threshold_prob);
