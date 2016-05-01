@@ -80,6 +80,10 @@ namespace gpu {
     void vector_sum(int rows, int cols, const cnn::real * a, cnn::real* c, const bool isColWise);
     void vector_add_const(int rows, int cols, const cnn::real * a, int brow, int bcol, const cnn::real* b, cnn::real * c, bool isColWise);
 
+    /// Y = a X + b
+    /// a anb b are scalar
+    void vsax_plus_sb(int n, cnn::real a, cnn::real b, cnn::real* x, cnn::real* y);
+
 
 } // namespace gpu
 } // namespace cnn
