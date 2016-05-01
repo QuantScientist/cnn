@@ -1,5 +1,5 @@
 #include "cnn/tensor.h"
-
+#include "cnn/gpu-ops.h"
 #include <random>
 #include <vector>
 #include <cstring>
@@ -173,10 +173,18 @@ namespace cnn {
       if (val.m_device_id < 0)
           generate(val.v, val.v + val.d.size(), b);
       else{
+        #ifdef USE_CURAND
+          if (sizeof(cnn::real) == sizeof(double))
+              CHECK_CURND(curandGenerateUniformDouble(curndGeneratorHandle, (double*)val.v, val.d.size()));
+          if (sizeof(cnn::real) == sizeof(float))
+              CHECK_CURND(curandGenerateUniform(curndGeneratorHandle, (float*)val.v, val.d.size()));
+          gpu::vsax_plus_sb(val.d.size(), scale / 0.5, -0.5, val.v, val.v);
+        #else
           cnn::real* t = new cnn::real[val.d.size()];
           generate(t, t + val.d.size(), b);
           CUDA_CHECK(cudaMemcpy(val.v, t, sizeof(cnn::real) * val.d.size(), cudaMemcpyHostToDevice));
           delete[] t;
+        #endif
       }
     #else
       generate(val.v, val.v + val.d.size(), b);

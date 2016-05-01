@@ -64,4 +64,8 @@ typedef float real;
 /// for speed-up
 #define MAX_NUMBER_OF_HYPOTHESIS 200
 
+/// for random number generation
+/// use curand to generate random numbers
+/// #ifdef USE_CURAND
+
 };

@@ -47,7 +47,7 @@ namespace cnn {
     void Initialize(int& argc, char**& argv, unsigned random_seed, bool demo) {
         cerr << "Initializing...\n";
 #if HAVE_CUDA
-        Initialize_GPU(argc, argv);
+        Initialize_GPU(argc, argv, random_seed);
 #else
         kSCALAR_MINUSONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
         *kSCALAR_MINUSONE = -1;
