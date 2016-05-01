@@ -3,7 +3,7 @@
 #include "cnn/cnn.h"
 #include "cnn/cuda.h"
 #include <cudnn.h>
-
+#include <curand.h>
 #pragma comment(lib,"cublas.lib")
 #pragma comment(lib,"cudart_static.lib")
 /// need to include library C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\lib\x64 that has cublas.lib to project
@@ -16,6 +16,8 @@ namespace cnn {
 cublasHandle_t cublas_handle;
 cudnnHandle_t cudnn_handle;
 cudnnDataType_t cudnnDataType;
+curandGenerator_t curndGeneratorHandle;
+
 void Initialize_CUDNN()
 {
     cudnn_handle = nullptr;
@@ -27,6 +29,7 @@ void Initialize_CUDNN()
         throw std::runtime_error("not supported data type");
 
     CHECK_CUDNN(cudnnCreate(&cudnn_handle));
+
 }
 
 void Initialize_Consts_And_Store_In_GPU()
@@ -48,10 +51,11 @@ void Free_GPU()
     CHECK_CUDNN(cudnnDestroy(cudnn_handle));
     CUBLAS_CHECK(cublasDestroy(cublas_handle));
 
+    CHECK_CURND(curandDestroyGenerator(curndGeneratorHandle));
 #endif
 }
 
-void Initialize_GPU(int& argc, char**& argv) {
+void Initialize_GPU(int& argc, char**& argv, unsigned random_seed) {
   int nDevices;
   CUDA_CHECK(cudaGetDeviceCount(&nDevices));
   if (nDevices < 1) {
@@ -97,6 +101,9 @@ void Initialize_GPU(int& argc, char**& argv) {
 
   Initialize_CUDNN();
 
+  /// initialize curnd
+  CHECK_CURND(curandCreateGenerator(&curndGeneratorHandle, CURAND_RNG_PSEUDO_MT19937));
+  CHECK_CURND(curandSetPseudoRandomGeneratorSeed(curndGeneratorHandle, random_seed));
 }
 
 } // namespace cnn
