@@ -68,6 +68,11 @@ void vcwise_quotient_backward(int n, const cnn::real* dEdy, const cnn::real* x_o
     accBinaryExprKernel << <tb.first, tb.second >> >(n, dEdy, x_other, dEdx, FQuotient());
 }
 
+void vsax_plus_sb(int n, cnn::real a, cnn::real b,  cnn::real* x, cnn::real* y) {
+    auto tb = SizeToBlockThreadPair(n);
+    unaryExprKernel << <tb.first, tb.second >> >(n, x, y, FConstATimesXPlusConstB(a, b));
+}
+
 void vconstant_minusx(int n, cnn::real c, const cnn::real* x, cnn::real* y) {
     auto tb = SizeToBlockThreadPair(n);
     unaryExprKernel << <tb.first, tb.second >> >(n, x, y, FConstantMinus(c));

@@ -131,6 +131,14 @@ struct FConstantMinus {
   cnn::real c;
 };
 
+struct FConstATimesXPlusConstB {
+    FConstATimesXPlusConstB(cnn::real a, cnn::real b) : a(a), b(b) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        return b + a*x;
+    }
+    cnn::real a, b;
+};
+
 struct FCopy {
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
         return x;
