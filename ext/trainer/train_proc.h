@@ -986,12 +986,9 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
 
     for (auto &turn : v_v_dialogues)
     {
-        vector<Sentence> res;
-        vector<Expression> v_errs; /// the errors to be minimized
-        vector<Expression> i_err;
-
         if (do_sampling)
         {
+            vector<Sentence> res;
             ComputationGraph cg_sampling;
             vector<Sentence> v_input, v_prv_response;
 
@@ -1095,9 +1092,10 @@ void TrainProcess<AM_t>::REINFORCE_segmental_forward_backward(AM_t &am, AM_t &am
             }
         }
  
-
         /// graph for learning
         ComputationGraph cg;
+        vector<Expression> v_errs; /// the errors to be minimized
+        vector<Expression> i_err;
 
         /// get errors from the decoded results
         if (do_sampling)
