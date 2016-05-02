@@ -23,7 +23,7 @@ cnn::real Trainer::clip_gradients(cnn::real samples) {
 
     if (clipping_enabled) {
         if (clipping_type == simple_clipping)
-            model->simple_gradient_clipping(clip_threshold);
+            model->simple_gradient_clipping(clip_threshold * samples);
         else{
             cnn::real gg = model->gradient_l2_norm();
             if (gg > clip_threshold * samples) {
