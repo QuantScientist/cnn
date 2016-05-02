@@ -27,53 +27,72 @@ using namespace std;
 
 namespace cnn {
 
-extern AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem;
+    extern AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem;
 
-ParametersBase::~ParametersBase() {}
+    ParametersBase::~ParametersBase() {}
 
-Parameters::Parameters(const Dim& d, cnn::real scale , std::string nodename) : dim(d), name(nodename) {
-  values.d = g.d = d;
-  values.v = (cnn::real*)cnn_mm_malloc(d.size() * sizeof(cnn::real), CNN_ALIGN);
-  values.m_device_id= device_id;
-  if (scale == 1.0)
-	  /// fix scale to sqrt(6) / sqrt(d.d.sum_dims())
-	  TensorTools::Randomize(values);
-  else 
-	  TensorTools::Randomize(values, scale);
-  g.v = (cnn::real*)cnn_mm_malloc(d.size() * sizeof(cnn::real), CNN_ALIGN);
-  g.m_device_id = device_id;
+    Parameters::Parameters(const Dim& d, cnn::real scale, std::string nodename) : dim(d), name(nodename) {
+        values.d = g.d = d;
+        values.v = (cnn::real*)cnn_mm_malloc(d.size() * sizeof(cnn::real), CNN_ALIGN);
+        values.m_device_id = device_id;
+        if (scale == 1.0)
+            /// fix scale to sqrt(6) / sqrt(d.d.sum_dims())
+            TensorTools::Randomize(values);
+        else
+            TensorTools::Randomize(values, scale);
+        g.v = (cnn::real*)cnn_mm_malloc(d.size() * sizeof(cnn::real), CNN_ALIGN);
+        g.m_device_id = device_id;
 
-  TensorTools::Zero(g);
-}
+        TensorTools::Zero(g);
+    }
 
-size_t Parameters::size() const { return dim.size(); }
+    size_t Parameters::size() const { return dim.size(); }
 
-void Parameters::reset_to_zero()
-{
+    void Parameters::reset_to_zero()
+    {
 #if HAVE_CUDA
-    gpu::set_to_value_of(values.d.size(), values.v, 0.0);
+        gpu::set_to_value_of(values.d.size(), values.v, 0.0);
 #else
-    (*values) *= 0.0;
+        (*values) *= 0.0;
 #endif
-}
+    }
 
-void Parameters::scale_parameters(cnn::real a) {
-  (*g) *= a;
-}
+    void Parameters::scale_parameters(cnn::real a) {
+        (*g) *= a;
+    }
 
-void Parameters::squared_l2norm(cnn::real* sqnorm) const {
+    void Parameters::squared_l2norm(cnn::real* sqnorm) const {
 #if HAVE_CUDA
-  gpu::l2_norm_reducer(values.d.size(), values.v, sqnorm, true, false);
+        gpu::l2_norm_reducer(values.d.size(), values.v, sqnorm, true, false);
 #else
-  *sqnorm = (*values).squaredNorm();
+        *sqnorm = (*values).squaredNorm();
 #endif
-}
+    }
 
-void Parameters::g_squared_l2norm(cnn::real* sqnorm) const {
+    void Parameters::g_squared_l2norm(cnn::real* sqnorm) const {
 #if HAVE_CUDA
-  gpu::l2_norm_reducer(g.d.size(), g.v, sqnorm, true, false);
+        gpu::l2_norm_reducer(g.d.size(), g.v, sqnorm, true, false);
 #else
-  *sqnorm = (*g).squaredNorm();
+        *sqnorm = (*g).squaredNorm();
+#endif
+    }
+
+    /// use abs value to clip for each element
+    /// compared to using gradient norm, this is simpler and cheaper
+    void Parameters::g_simple_clipping(cnn::real threshold)  {
+        cnn::real thr = threshold / g.d.size();
+#if HAVE_CUDA
+        gpu::simple_clipping(g.d.size(), g.v, g.v, thr);
+#else
+        for (int k = 0; k < g.d.size(); k++)
+        {
+            if (fabs(g.v[k]) > thr){
+                if (g.v[k] > 0)
+                    g.v[k] = thr;
+                else
+                    g.v[k] = -thr;
+            }
+        }
 #endif
 }
 
@@ -208,6 +227,29 @@ void LookupParameters::squared_l2norm(cnn::real* sqnorm) const {
     */
 }
 
+void LookupParameters::g_simple_clipping(cnn::real thr)  {
+#if HAVE_CUDA
+    for (auto g : grads) {
+        cnn::real threshold = thr / g.second.d.size();
+        gpu::simple_clipping(g.second.d.size(), g.second.v, g.second.v, threshold);
+    }
+#else
+    for (auto g: grads)
+    {
+        cnn::real threshold = thr / g.d.size();
+        for (int k = 0; k < g.d.size(); k++)
+        {
+            if (fabs(g.v[k]) > thrshold){
+                if (g.v[k] > 0)
+                    g.v[k] = threshold;
+                else
+                    g.v[k] = -threshold;
+            }
+        }
+    }
+#endif
+}
+
 void LookupParameters::copy(const LookupParameters & param) {
     assert(dim == param.dim);
     for (size_t i = 0; i < param.values.size(); ++i)
@@ -287,7 +329,7 @@ cnn::real Model::gradient_l2_norm() const {
   // return *gscale;
   
   // do reduction in CPU as one whole block of memcpy can be fast
-  CUDA_CHECK(cudaMemcpyAsync(gscale, gradient_norm_scratch, sizeof(cnn::real) * all_params.size(), cudaMemcpyDeviceToHost));
+  CUDA_CHECK(cudaMemcpy(gscale, gradient_norm_scratch, sizeof(cnn::real) * all_params.size(), cudaMemcpyDeviceToHost));
   cnn::real gg = 0; 
   for (int k = 0; k < all_params.size(); k++)
       gg += gscale[k] * gscale[k];
@@ -298,6 +340,12 @@ cnn::real Model::gradient_l2_norm() const {
     gg += gradient_norm_scratch[i];
   return sqrt(gg);
 #endif
+}
+
+void Model::simple_gradient_clipping(cnn::real threshold)  {
+    for (auto p : all_params) {
+        p->g_simple_clipping(threshold);
+    }
 }
 
 Parameters* Model::add_parameters(const Dim& d, cnn::real scale, std::string nodename) {
