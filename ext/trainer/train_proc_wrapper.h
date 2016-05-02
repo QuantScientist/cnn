@@ -55,20 +55,22 @@ Trainer* select_trainer(variables_map vm, Model* model)
         else
             sgd = new MomentumSGDTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
     }
-    if (vm["trainer"].as<string>() == "sgd")
-        sgd = new SimpleSGDTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "adagrad")
+    else if (vm["trainer"].as<string>() == "adagrad")
         sgd = new AdagradTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "adadelta")
+    else if (vm["trainer"].as<string>() == "adadelta")
         sgd = new AdadeltaTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "rmsprop")
+    else if (vm["trainer"].as<string>() == "rmsprop")
         sgd = new RmsPropTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "rmspropwithmomentum")
+    else if (vm["trainer"].as<string>() == "rmspropwithmomentum")
         sgd = new RmsPropWithMomentumTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "rmspropwithmomentumgpu")
+    else if (vm["trainer"].as<string>() == "rmspropwithmomentumgpu")
         sgd = new RmsPropWithMomentumTrainerGPU(model, 1e-6, vm["eta"].as<cnn::real>());
+    else
+        sgd = new SimpleSGDTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
     sgd->clip_threshold = vm["clip"].as<cnn::real>();
     sgd->eta_decay = vm["eta_decay"].as<cnn::real>();
+
+    sgd->clipping_type = (t_gradient_clipping)vm["clippingtype"].as<int>();
 
     return sgd;
 }
