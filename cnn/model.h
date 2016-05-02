@@ -26,6 +26,8 @@ struct ParametersBase {
   virtual void scale_parameters(cnn::real a) = 0;
   virtual void squared_l2norm(cnn::real* sqnorm) const = 0;
   virtual void g_squared_l2norm(cnn::real* sqnorm) const = 0;
+  virtual   void g_simple_clipping(cnn::real threshold) = 0;
+
   virtual size_t size() const = 0;
   virtual ~ParametersBase();
 };
@@ -37,6 +39,8 @@ struct Parameters : public ParametersBase {
   void reset_to_zero() ;
   void squared_l2norm(cnn::real* sqnorm) const override;
   void g_squared_l2norm(cnn::real* sqnorm) const override;
+  void g_simple_clipping(cnn::real threshold);
+
   size_t size() const override;
 
   void copy(const Parameters & val);
@@ -68,6 +72,7 @@ struct LookupParameters : public ParametersBase {
   void scale_parameters(cnn::real a) override;
   void squared_l2norm(cnn::real* sqnorm) const override;
   void g_squared_l2norm(cnn::real* sqnorm) const override;
+  void g_simple_clipping(cnn::real threshold);
   size_t size() const override;
   void Initialize(unsigned index, const std::vector<cnn::real>& val);
 
@@ -135,7 +140,12 @@ private:
         gscale = nullptr; 
     }
     ~Model();
+
+    /// for gradient clipping
     cnn::real gradient_l2_norm() const;
+    /// clip gradients if their values are larger than the threshold
+    void simple_gradient_clipping(cnn::real threshold);
+
     void reset_gradient();
     // set scale to use custom initialization
     Parameters* add_parameters(const Dim& d, cnn::real scale = 1.0f, std::string nodename = "");
