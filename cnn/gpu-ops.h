@@ -84,6 +84,9 @@ namespace gpu {
     /// a anb b are scalar
     void vsax_plus_sb(int n, cnn::real a, cnn::real b, cnn::real* x, cnn::real* y);
 
+    /// clip each element of x0 if its absolute value is larger than the threshold
+    void simple_clipping(int n, const cnn::real* x0, cnn::real* y, cnn::real threshold);
+
 
 } // namespace gpu
 } // namespace cnn

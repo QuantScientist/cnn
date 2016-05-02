@@ -248,8 +248,13 @@ void sqeucdist(int n, const cnn::real* x0, const cnn::real *x1, cnn::real* y) {
 }
 
 void l2_norm_reducer(int n, const cnn::real* x0, cnn::real* y, bool square, bool accumulate) {
-  auto tb = SizeToBlockThreadPair(n);
-  ker_l2_norm_reducer<<<tb.first,tb.second>>>(n, x0, y, square, accumulate);
+    auto tb = SizeToBlockThreadPair(n);
+    ker_l2_norm_reducer << <tb.first, tb.second >> >(n, x0, y, square, accumulate);
+}
+
+void simple_clipping(int n, const cnn::real* x0, cnn::real* y, cnn::real threshold) {
+    auto tb = SizeToBlockThreadPair(n);
+    unaryExprKernel << <tb.first, tb.second >> >(n, x0, y, FAbsClipping(threshold)); 
 }
 
 void sqrt_of_l2_norm_reducer(int n, cnn::real* x0, cnn::real& res)
