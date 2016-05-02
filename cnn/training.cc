@@ -22,10 +22,14 @@ cnn::real Trainer::clip_gradients(cnn::real samples) {
     cnn::real gscale = 1;
 
     if (clipping_enabled) {
-        cnn::real gg = model->gradient_l2_norm();
-        if (gg > clip_threshold * samples) {
-            ++clips;
-            gscale = (clip_threshold * samples) / gg;
+        if (clipping_type == simple_clipping)
+            model->simple_gradient_clipping(clip_threshold);
+        else{
+            cnn::real gg = model->gradient_l2_norm();
+            if (gg > clip_threshold * samples) {
+                ++clips;
+                gscale = (clip_threshold * samples) / gg;
+            }
         }
     }
     return gscale;
@@ -61,13 +65,23 @@ void SimpleSGDTrainer::update(const std::vector<LookupParameters*> &lookup_param
     p->clear();
   }
 
+  vector<cudaStream_t> streams;
+  for (auto p : lookup_params) {
+      for (auto g : p->grads) {
+          cudaStream_t cs;
+          CUDA_CHECK(cudaStreamCreate(&cs));
+          streams.push_back(cs);
+      }
+  }
+
+  unsigned k = 0;
   for (auto p : lookup_params) {
     for (auto g : p->grads) {
       unsigned i = g.first;
 #if HAVE_CUDA
 #ifdef USE_CPU_FOR_LOOKUP_PARAM
-      gpu::sgd_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values[i].v, eta * scale * gscale * nutt_scale, lambda);
-      CUDA_CHECK(cudaMemcpy(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
+      gpu::sgd_update(p->values_for_non_zero_grads[i].d.size(), p->grads[i].v, p->values_for_non_zero_grads[i].v, eta * scale * gscale * nutt_scale, lambda);
+      CUDA_CHECK(cudaMemcpyAsync(p->values[i].v, p->values_for_non_zero_grads[i].v, p->values[i].d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost, streams[k++]));
 #else
       gpu::sgd_update(p->values[i].d.size(), p->grads[i].v, p->values[i].v, eta * scale * gscale * nutt_scale, lambda);
 #endif
@@ -78,6 +92,12 @@ void SimpleSGDTrainer::update(const std::vector<LookupParameters*> &lookup_param
     }
     p->clear();
   }
+
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  for (k = 0; k < streams.size(); k++)
+      CUDA_CHECK(cudaStreamDestroy(streams[k]));
+
   ++updates;
 }
 
