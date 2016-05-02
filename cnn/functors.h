@@ -528,6 +528,21 @@ void softmax(int row, int col, const ElemType* a, ElemType* v, const bool isColW
     }
 }
 
+/// clipping if absolute value is larger than a thrsehold
+struct FAbsClipping{
+    FAbsClipping(cnn::real c) : c(c) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        if (fabs(x) > c){
+            if (x > 0) return c;
+            else return -c;
+        }
+        else
+            return x;
+    }
+    cnn::real c;
+};
+
+
 } // namespace cnn
 
 #endif
