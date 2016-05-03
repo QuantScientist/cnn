@@ -65,6 +65,7 @@ void SimpleSGDTrainer::update(const std::vector<LookupParameters*> &lookup_param
     p->clear();
   }
 
+#ifdef HAVE_CUDA
   vector<cudaStream_t> streams;
   for (auto p : lookup_params) {
       for (auto g : p->grads) {
@@ -73,6 +74,7 @@ void SimpleSGDTrainer::update(const std::vector<LookupParameters*> &lookup_param
           streams.push_back(cs);
       }
   }
+#endif
 
   unsigned k = 0;
   for (auto p : lookup_params) {
@@ -93,10 +95,12 @@ void SimpleSGDTrainer::update(const std::vector<LookupParameters*> &lookup_param
     p->clear();
   }
 
+#ifdef HAVE_CUDA
   CUDA_CHECK(cudaDeviceSynchronize());
 
   for (k = 0; k < streams.size(); k++)
       CUDA_CHECK(cudaStreamDestroy(streams[k]));
+#endif
 
   ++updates;
 }

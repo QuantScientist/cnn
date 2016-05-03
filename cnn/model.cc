@@ -236,14 +236,14 @@ void LookupParameters::g_simple_clipping(cnn::real thr)  {
 #else
     for (auto g: grads)
     {
-        cnn::real threshold = thr / g.d.size();
-        for (int k = 0; k < g.d.size(); k++)
+        cnn::real threshold = thr / g.second.d.size();
+        for (int k = 0; k < g.second.d.size(); k++)
         {
-            if (fabs(g.v[k]) > thrshold){
-                if (g.v[k] > 0)
-                    g.v[k] = threshold;
+            if (fabs(g.second.v[k]) > threshold){
+                if (g.second.v[k] > 0)
+                    g.second.v[k] = threshold;
                 else
-                    g.v[k] = -threshold;
+                    g.second.v[k] = -threshold;
             }
         }
     }

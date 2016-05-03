@@ -642,6 +642,7 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             prv_turn = turn;
         }
         samples++;
+        cout << " " << samples; 
         if (samples % 100 == 0)
             cout << "finished " << samples / (devel.size() + 0.0) * 100 << endl;
     }
