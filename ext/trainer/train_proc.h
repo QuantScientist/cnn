@@ -563,6 +563,9 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
     map<cnn::real, cnn::real> weight_to_bleu_pair; 
 
     vector<vector<tuple<cnn::real, cnn::real, cnn::real>>> dev_set_rerank_scores;
+    int samples = 0; 
+    cout << "started decoding " << endl;
+
     for (auto diag : devel){
 
         SentencePair prv_turn;
@@ -638,7 +641,11 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             turn_id++;
             prv_turn = turn;
         }
+        samples++;
+        if (samples % 100 == 0)
+            cout << "finished " << samples / (devel.size() + 0.0) * 100 << endl;
     }
+    cout << "completed decoding" << endl;
 
     /// learn a weight to IDF score
     vector<cnn::real> v_bleu_scores; 
