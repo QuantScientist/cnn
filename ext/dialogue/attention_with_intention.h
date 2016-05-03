@@ -116,6 +116,10 @@ protected:
 
     Parameters * p_cxt_to_decoder, *p_enc_to_intention;
     Expression i_cxt_to_decoder, i_enc_to_intention;
+
+    /// for beam search results
+    priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+
 public:
     MultiSource_LinearEncoder(Model& model,
         unsigned vocab_size_src, unsigned vocab_size_tgt, const vector<unsigned int>& layers,
@@ -662,7 +666,7 @@ public:
 
         start_new_single_instance(prv_response, source, cg);
 
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+        completed = priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis>();  /// reset the queue
         priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
         chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
 
@@ -729,7 +733,7 @@ public:
                     {
                         if (vi == eos_sym)
                         {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            Hypothesis hnew(decoder.state(), vi / (it+1), score, hprev);
                             completed.push(hnew);
                         }
                         else
@@ -772,7 +776,6 @@ public:
         }
         else
         {
-            completed.pop();
             best = completed.top().target;
         }
 
@@ -793,7 +796,7 @@ public:
 
         start_new_single_instance(prv_response, source, cg);
 
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+        completed = priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis>();  /// reset the queue
         priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
         chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
 
@@ -860,7 +863,7 @@ public:
                     {
                         if (vi == eos_sym)
                         {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
+                            Hypothesis hnew(decoder.state(), vi / (it+1), score, hprev);
                             completed.push(hnew);
                         }
                         else
@@ -903,7 +906,6 @@ public:
         }
         else
         {
-            completed.pop();
             best = completed.top().target;
         }
 
@@ -912,6 +914,14 @@ public:
         turnid++;
         return best;
     }
+
+public:
+    /// for reranking
+    priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> get_beam_decode_complete_list()
+    {
+        return completed;
+    }
+
 };
 
 /** additionally with attention
@@ -1485,6 +1495,9 @@ class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource
     using MultiSource_LinearEncoder<Builder, Decoder>::beam_decode;
     using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
 
+    using MultiSource_LinearEncoder::completed;
+    using MultiSource_LinearEncoder::get_beam_decode_complete_list;
+
 protected:
     cnn::real r_softmax_scale; /// for attention softmax exponential scale
     LookupParameters* p_max_ent; /// weight for max-entropy feature
@@ -1998,7 +2011,7 @@ public:
 
         start_new_single_instance(prv_response, source, cg);
 
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+        completed = priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis>();  /// reset the queue
         priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
         chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
 
@@ -2117,7 +2130,7 @@ public:
 
         start_new_single_instance(prv_response, source, cg);
 
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
+        completed = priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis>();  /// reset the queue
         priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
         chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
 
@@ -2226,265 +2239,6 @@ public:
         return best;
     }
 
-
-    virtual std::vector<std::vector<int>> beam_decode_rerank(const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
-    {
-
-        //assert(!giza_extensions);
-        const int sos_sym = tdict.Convert("<s>");
-        const int eos_sym = tdict.Convert("</s>");
-
-        size_t tgt_len = 40;//50 * source.size();
-        Sentence prv_response;
-
-        start_new_single_instance(prv_response, source, cg);
-
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
-        chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
-
-        boost::integer_range<int> vocab = boost::irange<int>(0, vocab_size_tgt);
-        vector<int> vec_vocab(vocab_size_tgt, 0);
-        for (auto k : vocab)
-        {
-            vec_vocab[k] = k;
-        }
-        vector<int> org_vec_vocab = vec_vocab;
-
-        size_t it = 0;
-        while (it < tgt_len) {
-            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> new_chart;
-            vec_vocab = org_vec_vocab;
-            real best_score = -numeric_limits<real>::infinity() + 100.;
-
-            while (!chart.empty()) {
-                Hypothesis hprev = chart.top();
-                //Expression i_scores = add_input(hprev.target.back(), hprev.t, cg, &hprev.builder_state);
-                Expression i_scores = decoder_single_instance_step(hprev.target.back(), cg, &hprev.builder_state);
-                Expression ydist = log_softmax(i_scores); // compiler warning, but see below
-
-                // find the top k best next words
-                //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
-                auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
-                real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
-                if (mscore < best_score - beam_width)
-                {
-                    chart.pop();
-                    continue;
-                }
-
-                best_score = max(mscore, best_score);
-
-                for (auto vi : vec_vocab)
-                {
-                    real score = hprev.cost + dist[vi];
-                    if (score >= best_score - beam_width)
-                    {
-                        if (vi == eos_sym)
-                        {
-                            Hypothesis hnew(decoder.state(), vi, score / (it + 1), hprev);
-                            completed.push(hnew);
-                        }
-                        else
-                        {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
-                            new_chart.push(hnew);
-                        }
-                    }
-                }
-
-                chart.pop();
-            }
-
-            if (new_chart.size() == 0)
-                break;
-
-            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
-            {
-                if (new_chart.top().cost > best_score - beam_width)
-                {
-                    chart.push(new_chart.top());
-                    new_chart.pop();
-                }
-                else
-                    break;
-            }
-            it++;
-        }
-
-        vector<vector<int>> kbest;        
-        if (completed.size() == 0)
-        {
-            cerr << "beam search decoding beam width too small, use the best path so far" << flush;
-            vector<int> best;
-            best = chart.top().target;
-            best.push_back(eos_sym);
-            kbest.push_back(best);
-        }
-        else
-        {
-            int nbrkbest = 0;
-            while (completed.size() != 0)
-            {
-                kbest.push_back(completed.top().target);
-                completed.pop();
-                if (nbrkbest > 10)
-                    break;
-                nbrkbest++;
-            }
-        }
-
-        /// diagonsis
-        /// n-best
-        
-       /* int kbest = 0;
-        while (completed.size() != 0)
-        {
-        auto pbest = completed.top().target;
-        cout << "top" << kbest++ << " best : ";
-        for (auto a : pbest)
-        cout << sd.Convert(a) << " ";
-        cout << endl;
-        completed.pop();
-        if (kbest > 3)
-        break;
-        }*/
-
-        save_context(cg);
-        serialise_context(cg);
-
-        turnid++;
-        return kbest;
-    }
-
-    virtual std::vector<std::vector<int>> beam_decode_rerank(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
-    {
-        //assert(!giza_extensions);
-        const int sos_sym = tdict.Convert("<s>");
-        const int eos_sym = tdict.Convert("</s>");
-
-        size_t tgt_len = 30;//50 * source.size();
-
-        start_new_single_instance(prv_response, source, cg);
-
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> completed;
-        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> chart;
-        chart.push(Hypothesis(decoder.state(), sos_sym, 0.0f, 0));
-
-        boost::integer_range<int> vocab = boost::irange<int>(0, vocab_size_tgt);
-        vector<int> vec_vocab(vocab_size_tgt, 0);
-        for (auto k : vocab)
-        {
-            vec_vocab[k] = k;
-        }
-        vector<int> org_vec_vocab = vec_vocab;
-
-        size_t it = 0;
-        while (it < tgt_len) {
-            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> new_chart;
-            vec_vocab = org_vec_vocab;
-            real best_score = -numeric_limits<real>::infinity() + 100.;
-
-            while (!chart.empty()) {
-                Hypothesis hprev = chart.top();
-                //Expression i_scores = add_input(hprev.target.back(), hprev.t, cg, &hprev.builder_state);
-                Expression i_scores = decoder_single_instance_step(hprev.target.back(), cg, &hprev.builder_state);
-                Expression ydist = log_softmax(i_scores); // compiler warning, but see below
-
-                // find the top k best next words
-                //auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
-                auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
-                real mscore = *max_element(dist.begin(), dist.end()) + hprev.cost;
-                if (mscore < best_score - beam_width)
-                {
-                    chart.pop();
-                    continue;
-                }
-
-                best_score = max(mscore, best_score);
-
-                for (auto vi : vec_vocab)
-                {
-                    real score = hprev.cost + dist[vi];
-                    if (score >= best_score - beam_width)
-                    {
-                        if (vi == eos_sym)
-                        {
-                            Hypothesis hnew(decoder.state(), vi, score / (it + 1), hprev);
-                            completed.push(hnew);
-                        }
-                        else
-                        {
-                            Hypothesis hnew(decoder.state(), vi, score, hprev);
-                            new_chart.push(hnew);
-                        }
-                    }
-                }
-
-                chart.pop();
-            }
-
-            if (new_chart.size() == 0)
-                break;
-
-            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
-            {
-                if (new_chart.top().cost > best_score - beam_width)
-                {
-                    chart.push(new_chart.top());
-                    new_chart.pop();
-                }
-                else
-                    break;
-            }
-            it++;
-        }
-
-        vector<vector<int>> kbest;
-        if (completed.size() == 0)
-        {
-            cerr << "beam search decoding beam width too small, use the best path so far" << flush;
-            vector<int> best;
-            best = chart.top().target;
-            best.push_back(eos_sym);
-            kbest.push_back(best);
-        }
-        else
-        {
-            int nbrkbest = 0;
-            while (completed.size() != 0)
-            {
-                kbest.push_back(completed.top().target);
-                completed.pop();
-                if (nbrkbest > 10)
-                    break;
-                nbrkbest++;
-            }
-        }
-
-
-        save_context(cg);
-        serialise_context(cg);
-
-        /// n-best
-        /*
-        int kbest = 0;
-        while (completed.size() != 0)
-        {
-        auto pbest = completed.top().target;
-        cout << "top" << kbest++ << " best : ";
-        for (auto a : pbest)
-        cout << sd.Convert(a) << " ";
-        cout << endl;
-        completed.pop();
-        if (kbest > 3)
-        break;
-        }*/
-
-        turnid++;
-        return kbest;
-    }
-
     /// return [nutt][decoded_results]
     std::vector<Sentence> batch_decode(const std::vector<Sentence>& prv_response, 
         const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
@@ -2532,8 +2286,8 @@ public:
 
                     // break potential infinite loop
                     if (t > 100) {
-                        w = eos_sym;
-                        pr_w = dist[w + init_pos];
+                        w = eos_sym + init_pos;
+                        pr_w = dist[w];
                     }
 
                     vtmp.push_back(w - init_pos);
