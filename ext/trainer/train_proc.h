@@ -404,7 +404,7 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     BleuMetric bleuScore;
     bleuScore.Initialize();
 
-    cnn::real idf_weight = 0.5;
+    cnn::real idf_weight = 0.9;
     IDFMetric idfScore(mv_idf);
 
     ofstream of(out_file);
@@ -485,6 +485,7 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
                         largest_score = rerank_score;
                         best_res = result;
                     }
+                    beam_search_results.pop();
                 }
 
                 if (best_res.size() > 0)
