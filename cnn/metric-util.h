@@ -264,3 +264,59 @@ namespace cnn {
         int levenshtein_distance(const std::vector<std::string> &s1, const std::vector<std::string> &s2);
     }
 }
+
+/// compute averaged IDF values
+class EditDistanceMetric
+{
+private:
+    /// sum of edit distance
+    double m_edit_distance;
+
+    /// number of comparisons
+    unsigned long m_number_comparison;
+
+public:
+
+    EditDistanceMetric()
+    {
+        m_number_comparison = 0;
+        m_edit_distance = 0.0;
+    }
+
+    ~EditDistanceMetric()
+    {}
+
+    void AccumulateScore(const vector<string> & prvTokens, const vector<string> & hypTokens)
+    {
+        cnn::real stats = GetStats(prvTokens, hypTokens);
+
+        m_edit_distance += stats;
+        m_number_comparison++;
+    }
+
+    cnn::real GetScore()
+    {
+        cnn::real edist = 0;
+        if (m_number_comparison > 0)
+        {
+            edist = m_edit_distance / m_number_comparison;
+        }
+        return edist;
+    }
+
+    cnn::real GetSentenceScore(const vector<string>& prev_response, const vector<string> & hypTokens)
+    {
+        cnn::real stats = GetStats(prev_response, hypTokens);
+
+        return stats;
+    }
+
+    /// compute the edit distance between two strings
+    cnn::real GetStats(const vector<string> & refTokens, const vector<string> & hypTokens)
+    {
+        cnn::real edtdistance = metric::levenshtein_distance(refTokens, hypTokens); 
+        
+        return edtdistance;
+    }
+};
+
