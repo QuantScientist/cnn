@@ -241,18 +241,21 @@ public:
     pair<cnn::real, cnn::real> GetStats(const vector<int> & refTokens, const vector<int> & hypTokens)
     {
         cnn::real refidf = 0, hypidf = 0; 
-        if (refTokens.size() > 0)
+        if (mv_idfs.size() > 0)
         {
-            for (const auto & p : refTokens)
-                refidf += mv_idfs[p];
-            refidf /= refTokens.size();
-        }
+            if (refTokens.size() > 0)
+            {
+                for (const auto & p : refTokens)
+                    refidf += mv_idfs[p];
+                refidf /= refTokens.size();
+            }
 
-        if (hypTokens.size() > 0)
-        {
-            for (const auto & p : hypTokens)
-                hypidf += mv_idfs[p];
-            hypidf /= hypTokens.size();
+            if (hypTokens.size() > 0)
+            {
+                for (const auto & p : hypTokens)
+                    hypidf += mv_idfs[p];
+                hypidf /= hypTokens.size();
+            }
         }
 
         return make_pair(refidf, hypidf);
