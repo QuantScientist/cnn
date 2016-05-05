@@ -407,6 +407,9 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     cnn::real idf_weight = 0.5;
     IDFMetric idfScore(mv_idf);
 
+    EditDistanceMetric editDistScoreHyp;
+    EditDistanceMetric editDistScoreRef;
+
     ofstream of(out_file);
 
     Timer iteration("completed in");
@@ -419,6 +422,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
         /// train on two segments of a dialogue
         vector<int> res;
         vector<vector<int>> res_kbest;
+        vector<string> prv_response;
+        vector<string> prv_response_ref;
         for (auto spair : diag)
         {
             ComputationGraph cg;
@@ -461,7 +466,7 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
                 }
                 cout << endl;
             }
-            
+
             if (rerankIDF > 0)
             {
                 cnn::real max_idf_score = -10000.0;
@@ -516,18 +521,32 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
             
             bleuScore.AccumulateScore(sref, srec);                
 
+
+            if (turn_id > 0){
+                editDistScoreHyp.AccumulateScore(prv_response, srec);
+                editDistScoreRef.AccumulateScore(prv_response_ref, sref);
+            }
+
             turn_id++;
             prv_turn = turn;
+            prv_response = srec;
+            prv_response_ref = sref;
         }
     }
 
     string sBleuScore = bleuScore.GetScore();
     cout << "BLEU (4) score = " << sBleuScore << endl;
-    of << sBleuScore << endl;
+    of << "BLEU (4) score = " << sBleuScore << endl;
 
     pair<cnn::real, cnn::real> idf_score = idfScore.GetScore();
     cout << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
     of << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
+
+    cnn::real edit_distance_score_ref = editDistScoreRef.GetScore();
+    cnn::real edit_distance_score_hyp = editDistScoreHyp.GetScore();
+    cout << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+    of << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+
     of.close();
 }
 
