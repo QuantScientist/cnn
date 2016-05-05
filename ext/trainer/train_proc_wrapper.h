@@ -242,6 +242,22 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         sgd = select_trainer<rnn_t, TrainProc>(vm, &model);
     }
 
+    if (vm.count("getidf") > 0)
+    {
+        Corpus idfcorpus;
+        cerr << "Reading dev data from " << vm["getidf"].as<string>() << "...\n";
+        ifstream ifs(vm["getidf"].as<string>().c_str());
+        if (ifs.is_open())
+            idfcorpus = read_corpus(ifs, sd, kSRC_SOS, kSRC_EOS, -1);
+        else
+        {
+            cerr << "cannot open " << vm["getidf"].as<string>() << endl;
+            throw std::runtime_error("cannot open file to read into corpus");
+        }
+        ifs.close();
+        ptrTrainer->get_idf(vm, idfcorpus, sd);
+    }
+
     if (vm.count("sampleresponses"))
     {
         cerr << "Reading sample corpus from " << vm["sampleresponses"].as<string>() << "...\n";
@@ -261,22 +277,6 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     if (vm.count("train-lda") > 0)
     {
         ptrTrainer->lda_train(vm, training, devel, sd);
-    }
-
-    if (vm.count("getidf") > 0)
-    {
-        Corpus idfcorpus;
-        cerr << "Reading dev data from " << vm["getidf"].as<string>() << "...\n";
-        ifstream ifs(vm["getidf"].as<string>().c_str());
-        if (ifs.is_open())
-            idfcorpus = read_corpus(ifs, sd, kSRC_SOS, kSRC_EOS, -1);
-        else
-        {
-            cerr << "cannot open " << vm["getidf"].as<string>() << endl;
-            throw std::runtime_error("cannot open file to read into corpus");
-        }
-        ifs.close();
-        ptrTrainer->get_idf(vm, idfcorpus, sd);
     }
 
     if ((vm.count("reinforce") || reinforceIDF >0) && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
