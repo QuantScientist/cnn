@@ -1496,8 +1496,8 @@ class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource
     using MultiSource_LinearEncoder<Builder, Decoder>::beam_decode;
     using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
 
-    using MultiSource_LinearEncoder::completed;
-    using MultiSource_LinearEncoder::get_beam_decode_complete_list;
+    using MultiSource_LinearEncoder<Builder, Decoder>::completed;
+    using MultiSource_LinearEncoder<Builder, Decoder>::get_beam_decode_complete_list;
 
 protected:
     cnn::real r_softmax_scale; /// for attention softmax exponential scale

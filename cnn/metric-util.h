@@ -59,7 +59,7 @@ public:
         cnn::real precision = Precision(m_allStats);
         cnn::real bp = BrevityPenalty(m_allStats);
 
-        cnn::real score = 100.0*precision*bp;
+        cnn::real score = precision*bp;
         return boost::lexical_cast<string>(score);
     }
 
@@ -69,7 +69,7 @@ public:
         cnn::real precision = Precision(stats);
         cnn::real bp = BrevityPenalty(stats);
 
-        cnn::real score = 100.0*precision*bp;
+        cnn::real score = precision*bp;
         return score;
     }
 
