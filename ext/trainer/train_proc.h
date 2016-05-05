@@ -1095,6 +1095,9 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
     string shuman;
     ofstream of(out_file);
 
+    IDFMetric idfScore(mv_idf);
+    EditDistanceMetric editDistScoreHyp;
+
     int d_idx = 0;
     while (1){
         cout << "please start dialogue with the agent. you can end this dialogue by typing exit " << endl;
@@ -1103,6 +1106,7 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
         vector<int> decode_output;
         vector<int> shuman_input;
         Sentence prv_response;
+        vector<string> prv_response_str;
         ComputationGraph cg;
         while (1){
 #ifdef INPUT_UTF8
@@ -1117,10 +1121,60 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
             shuman = "<s> " + shuman + " </s>";
             convertHumanQuery(shuman, shuman_input, td);
 
+            vector<string> sref, srec;
+
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
+
             if (t_idx == 0)
-                decode_output = am.decode(shuman_input, cg, td);
+            {
+                if (beam_search_decode == -1)
+                    decode_output = am.decode(shuman_input, cg, td);
+                else
+                    decode_output = am.beam_decode(shuman_input, cg, beam_search_decode, td);
+            }
             else
-                decode_output = am.decode(prv_response, shuman_input, cg, td);
+            {
+                if (beam_search_decode == -1)
+                    decode_output = am.decode(prv_response, shuman_input, cg, td);
+                else
+                    decode_output = am.beam_decode(prv_response, shuman_input, cg, beam_search_decode, td);
+            }
+
+            if (rerankIDF > 0)
+            {
+                cnn::real max_idf_score = -10000.0;
+                size_t kbest_idx = 0;
+
+                beam_search_results = am.get_beam_decode_complete_list();
+
+                cnn::real largest_score = -10000.0;
+                while (!beam_search_results.empty())
+                {
+                    vector<int> result = beam_search_results.top().target;
+                    cnn::real lk = beam_search_results.top().cost;
+                    cnn::real idf_score = idfScore.GetStats(result, result).second;
+
+                    srec.clear();
+                    for (auto p : result){
+                        srec.push_back(sd.Convert(p));
+                    }
+
+                    cnn::real edit_distance_score = 0;
+                    if (t_idx > 0)
+                        edit_distance_score = editDistScoreHyp.GetSentenceScore(prv_response_str, srec);
+
+                    beam_search_results.pop();
+
+                    cnn::real score_combine_idf_lk = weight_IDF * idf_score + (1 - weight_IDF) * lk;
+                    cnn::real comb_score = (1 - weight_edist) * score_combine_idf_lk + weight_edist * edit_distance_score;
+
+                    if (comb_score > largest_score)
+                    {
+                        largest_score = comb_score;
+                        decode_output = result;
+                    }
+                }
+            }
 
             of << "res ||| " << d_idx << " ||| " << t_idx << " ||| ";
             for (auto pp : shuman_input)
@@ -1136,9 +1190,11 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
             of << endl;
 
             cout << "Agent: ";
+            prv_response_str.clear();
             for (auto pp : decode_output)
             {
                 cout << td.Convert(pp) << " ";
+                prv_response_str.push_back(td.Convert(pp));
             }
             cout << endl;
 
