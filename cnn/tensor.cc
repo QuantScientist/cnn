@@ -44,11 +44,16 @@ namespace cnn {
 
     vector<cnn::real> as_vector(const Tensor& v) {
       vector<cnn::real> res(v.d.size());
+
       if (v.m_device_id < 0)
           memcpy(&res[0], v.v, sizeof(cnn::real) * res.size());
       else{
 #if HAVE_CUDA
-          CUDA_CHECK(cudaMemcpy(&res[0], v.v, sizeof(cnn::real) * res.size(), cudaMemcpyDeviceToHost));
+          cnn::real * cuda_host_memory;
+          CUDA_CHECK(cudaHostAlloc(&cuda_host_memory, sizeof(cnn::real) * v.d.size(), cudaHostAllocDefault));
+          CUDA_CHECK(cudaMemcpy(cuda_host_memory, v.v, sizeof(cnn::real) * res.size(), cudaMemcpyDeviceToHost));
+          memcpy(&res[0], cuda_host_memory, sizeof(cnn::real) * res.size());
+          CUDA_CHECK(cudaFreeHost(cuda_host_memory));
 #else
           memcpy(&res[0], v.v, sizeof(cnn::real) * res.size());
 #endif
