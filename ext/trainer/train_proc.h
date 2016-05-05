@@ -86,6 +86,8 @@ extern cnn::real lambda; // = 1e-6;
 extern int repnumber;
 extern int rerankIDF;
 extern int reinforceIDF;
+extern cnn::real weight_IDF;
+extern cnn::real weight_edist;
 
 extern Sentence prv_response;
 
@@ -229,6 +231,7 @@ public:
 public:
     /// for reranking
     bool MERT_tune(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
+    bool MERT_tune_edit_distance(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd, cnn::real weight_IDF=0.1);
 
 public:
     /// for LDA
@@ -404,7 +407,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     BleuMetric bleuScore;
     bleuScore.Initialize();
 
-    cnn::real idf_weight = 0.9;
+    /*cnn::real idf_weight = 0.1;
+    cnn::real edist_weight = 0.1;*/
     IDFMetric idfScore(mv_idf);
 
     EditDistanceMetric editDistScoreHyp;
@@ -484,7 +488,18 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
                     vector<int> result = beam_search_results.top().target;
                     cnn::real lk = beam_search_results.top().cost;
                     cnn::real idf_score = idfScore.GetStats(turn.second, result).second;
-                    cnn::real rerank_score = (1 - idf_weight) * lk + idf_weight * idf_score; 
+
+                    srec.clear();
+                    for (auto p : result){
+                        srec.push_back(sd.Convert(p));
+                    }
+
+                    cnn::real edist_score = editDistScoreHyp.GetStats(prv_response, srec);
+
+                    cnn::real rerank_score = (1 - weight_IDF) * lk + weight_IDF * idf_score;
+
+                    rerank_score = (1 - weight_edist) * rerank_score + weight_edist * edist_score;
+
                     if (rerank_score > largest_score)
                     {
                         largest_score = rerank_score;
@@ -569,6 +584,7 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
     BleuMetric bleuScore;
     bleuScore.Initialize();
     IDFMetric idfScore(mv_idf);
+    EditDistanceMetric editDistScoreRef;
 
     if (beam_search_decode <= 0)
     {
@@ -686,6 +702,183 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
                 cnn::real lk = std::get<0>(c); 
                 cnn::real idfscore = std::get<1>(c);
                 cnn::real this_score = (1.0 - idf_wgt) * lk + idf_wgt * idfscore;
+                if (max_combine_score < this_score)
+                {
+                    max_combine_score = this_score;
+                    idx = k;
+                }
+                k++;
+            }
+
+            avg_bleu_score += std::get<2>(t[idx]);
+        }
+        v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
+    }
+
+    cnn::real max_bleu_score = -10000.0;
+    int idx_wgt = -1;
+    cout << "bleu : ";
+    for (int k = 0; k < v_bleu_scores.size(); k++)
+    {
+        if (max_bleu_score < v_bleu_scores[k])
+        {
+            max_bleu_score = v_bleu_scores[k];
+            idx_wgt = k;
+        }
+        cout << v_bleu_scores[k] << " ";
+    }
+    cout << endl;
+
+    cout << "weights : ";
+    for (auto w : v_wgts)
+        cout << w << " ";
+    cout << endl;
+    cnn::real optimal_wgt = v_wgts[idx_wgt];
+
+    of << "optimal weight to IDF score is " << optimal_wgt << endl;
+    cout << "optimal weight to IDF score is " << optimal_wgt << endl;
+
+    return true;
+}
+
+template <class AM_t>
+bool TrainProcess<AM_t>::MERT_tune_edit_distance(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd, cnn::real weight_IDF)
+{
+    BleuMetric bleuScore;
+    bleuScore.Initialize();
+    IDFMetric idfScore(mv_idf);
+    EditDistanceMetric editDistScoreRef;
+
+    if (beam_search_decode <= 0)
+    {
+        cerr << "need beam search decoding to generate candidate lists. please set beamsearchdecode" << endl;
+        return false;
+    }
+
+    ofstream of(out_file);
+
+    Timer iteration("completed in");
+
+    map<cnn::real, cnn::real> weight_to_bleu_pair;
+
+    vector<vector<tuple<cnn::real, cnn::real, cnn::real, cnn::real>>> dev_set_rerank_scores;
+    int samples = 0;
+    cout << "started decoding " << endl;
+
+    for (auto diag : devel){
+
+        Timer beam_decode("beam decode completed in");
+
+        SentencePair prv_turn;
+        size_t turn_id = 0;
+
+        /// train on two segments of a dialogue
+        vector<int> res;
+        vector<vector<int>> res_kbest;
+        vector<string> prv_response;
+
+        for (auto spair : diag)
+        {
+            ComputationGraph cg;
+
+            SentencePair turn = spair;
+            vector<string> sref, srec;
+
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
+
+            if (turn_id == 0)
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode(turn.first, cg, sd);
+                else
+                    res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+            }
+            else
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode(prv_turn.second, turn.first, cg, sd);
+                else
+                    res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+            }
+
+            sref.clear();
+            if (turn.second.size() > 0)
+            {
+                for (auto p : turn.second){
+                    sref.push_back(sd.Convert(p));
+                }
+            }
+
+            if (rerankIDF > 0)
+            {
+                cnn::real max_idf_score = -10000.0;
+                size_t kbest_idx = 0;
+
+                beam_search_results = am.get_beam_decode_complete_list();
+
+                /// averaged_log_likelihood , idf_score, bleu_score
+                /// the goal is to rerank using averaged_log_likelihood + weight * idf_score
+                /// so that the top is with the highest bleu score
+                vector<tuple<cnn::real, cnn::real, cnn::real, cnn::real>> rerank_scores;
+                while (!beam_search_results.empty())
+                {
+                    vector<int> result = beam_search_results.top().target;
+                    cnn::real lk = beam_search_results.top().cost;
+                    cnn::real idf_score = idfScore.GetStats(turn.second, result).second;
+
+                    srec.clear();
+                    for (auto p : result){
+                        srec.push_back(sd.Convert(p));
+                    }
+
+                    cnn::real bleu_score = bleuScore.GetSentenceScore(sref, srec);
+                    cnn::real edit_distance_score = editDistScoreRef.GetSentenceScore(prv_response, srec);
+
+                    beam_search_results.pop();
+
+                    rerank_scores.push_back(make_tuple(lk, idf_score, bleu_score, edit_distance_score));
+                }
+
+                dev_set_rerank_scores.push_back(rerank_scores);
+            }
+
+
+            turn_id++;
+            prv_turn = turn;
+            prv_response = srec;
+        }
+        samples++;
+        cout << " " << samples;
+        if (samples % 100 == 0)
+            cout << "finished " << samples / (devel.size() + 0.0) * 100 << endl;
+    }
+    cout << "completed decoding" << endl;
+
+    /// learn a weight to IDF score
+    vector<cnn::real> v_bleu_scores;
+    vector<cnn::real> v_wgts;
+    cnn::real idf_wgt = weight_IDF;
+
+    Timer MERT_tune("MERT tune completed in");
+
+    for (cnn::real edst_wgt = 0.0; edst_wgt <= 0.2; edst_wgt += 0.005)
+    {
+        v_wgts.push_back(idf_wgt);
+
+        cnn::real avg_bleu_score = 0;
+        for (auto t : dev_set_rerank_scores)
+        {
+            cnn::real max_combine_score = -10000.0;
+            int idx = -1;
+            int k = 0;
+            for (auto c : t)
+            {
+                cnn::real lk = std::get<0>(c);
+                cnn::real idfscore = std::get<1>(c);
+                cnn::real this_score = (1.0 - idf_wgt) * lk + idf_wgt * idfscore;
+                cnn::real edistscore = std::get<3>(c);
+                this_score = (1 - edst_wgt) * this_score + edst_wgt * edistscore;
+
                 if (max_combine_score < this_score)
                 {
                     max_combine_score = this_score;

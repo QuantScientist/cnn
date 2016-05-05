@@ -2,6 +2,9 @@
 
 #include "ext/trainer/train_proc.h"
 
+extern cnn::real weight_IDF;
+extern cnn::real weight_edist;
+
 template<class rnn_t, class TrainProc>
 void prt_model_info(size_t LAYERS, size_t VOCAB_SIZE_SRC, const vector<unsigned>& dims, size_t nreplicate, size_t decoder_additiona_input_to, size_t mem_slots, cnn::real scale)
 {
@@ -352,7 +355,10 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         {
             throw std::invalid_argument("missing recognition output file");
         }
-        ptrTrainer->MERT_tune(model, hred, devel, vm["outputfile"].as<string>(), sd);
+        if (weight_IDF - 0 < 1e-4)
+            ptrTrainer->MERT_tune(model, hred, devel, vm["outputfile"].as<string>(), sd);
+        else
+            ptrTrainer->MERT_tune_edit_distance(model, hred, devel, vm["outputfile"].as<string>(), sd, weight_IDF);
     }
 
     else if (vm.count("testcorpus") && testcorpus.size() > 0)

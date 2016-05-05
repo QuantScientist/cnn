@@ -2072,7 +2072,7 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            while (!new_chart.empty() && chart.size() <= max_number_of_hypothesis)
+            while (!new_chart.empty() && chart.size() <= MAX_NUMBER_OF_HYPOTHESIS)
             {
                 if (new_chart.top().cost > best_score - beam_width)
                 {
@@ -2191,7 +2191,7 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            while (!new_chart.empty() && chart.size() <= max_number_of_hypothesis)
+            while (!new_chart.empty() && chart.size() <= MAX_NUMBER_OF_HYPOTHESIS)
             {
                 if (new_chart.top().cost > best_score - beam_width)
                 {
