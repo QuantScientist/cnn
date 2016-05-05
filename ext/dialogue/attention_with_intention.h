@@ -30,6 +30,7 @@
 #include <boost/range/irange.hpp>
 
 extern int verbose; 
+extern int max_number_of_hypothesis;
 
 namespace cnn {
 
@@ -2071,7 +2072,7 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
+            while (!new_chart.empty() && chart.size() <= max_number_of_hypothesis)
             {
                 if (new_chart.top().cost > best_score - beam_width)
                 {
@@ -2190,7 +2191,7 @@ public:
             if (new_chart.size() == 0)
                 break;
 
-            while (!new_chart.empty() && chart.size() < MAX_NUMBER_OF_HYPOTHESIS)
+            while (!new_chart.empty() && chart.size() <= max_number_of_hypothesis)
             {
                 if (new_chart.top().cost > best_score - beam_width)
                 {
