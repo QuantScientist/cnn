@@ -687,7 +687,7 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
     /// learn a weight to IDF score
     vector<cnn::real> v_bleu_scores; 
     vector<cnn::real> v_wgts;
-    for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.1)
+    for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.05)
     {
         v_wgts.push_back(idf_wgt);
 
