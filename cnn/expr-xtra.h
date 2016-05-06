@@ -200,16 +200,11 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<int
     unsigned int nutt = source.size();
     /// get the maximum length of utternace from all speakers
     vector<int> vlen;
-    bool bsamelength = true;
     slen = 0;
     for (auto p : source)
     {
         slen = (slen < p.size()) ? p.size() : slen;
         vlen.push_back(p.size());
-        if (slen != p.size())
-        {
-            bsamelength = false;
-        }
     }
 
     Expression e_zero = input(cg, { feat_dim }, &zero);
