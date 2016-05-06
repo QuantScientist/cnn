@@ -2098,22 +2098,6 @@ public:
             best = completed.top().target;
         }
 
-        /// diagonsis
-        /// n-best
-        /*
-        int kbest = 0;
-        while (completed.size() != 0)
-        {
-            auto pbest = completed.top().target;
-            cout << "top" << kbest++ << " best : "; 
-            for (auto a : pbest)
-                cout << sd.Convert(a) << " ";
-            cout << endl;
-            completed.pop();
-            if (kbest > 3)
-                break;
-        }*/
-        
         save_context(cg);
         serialise_context(cg);
 
