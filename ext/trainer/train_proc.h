@@ -688,9 +688,13 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
     /// learn a weight to IDF score
     vector<cnn::real> v_bleu_scores; 
     vector<cnn::real> v_wgts;
+    cnn::real max_bleu_score = -10000.0;
+    int idx_wgt = -1;
     for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.05)
     {
         v_wgts.push_back(idf_wgt);
+
+	cout << "idf weight = " << idf_wgt << endl;
 
         cnn::real avg_bleu_score = 0;
         for (auto t : dev_set_rerank_scores)
@@ -711,29 +715,21 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
                 k++;
             }
 
-            avg_bleu_score += std::get<2>(t[idx]);
+            if (idx >= 0)
+	      avg_bleu_score += std::get<2>(t[idx]);
         }
         v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
-    }
 
-    cnn::real max_bleu_score = -10000.0;
-    int idx_wgt = -1;
-    cout << "bleu : ";
-    for (int k = 0; k < v_bleu_scores.size(); k++)
-    {
-        if (max_bleu_score < v_bleu_scores[k])
+        if (max_bleu_score < v_bleu_scores.back())
         {
-            max_bleu_score = v_bleu_scores[k];
-            idx_wgt = k;
+	  max_bleu_score = v_bleu_scores.back();
+	  idx_wgt = v_bleu_scores.size() - 1;
         }
-        cout << v_bleu_scores[k] << " ";
+
+	cout << "w(" << idf_wgt << ") " << v_bleu_scores.back() << " "; 
     }
     cout << endl;
 
-    cout << "weights : ";
-    for (auto w : v_wgts)
-        cout << w << " ";
-    cout << endl;
     cnn::real optimal_wgt = v_wgts[idx_wgt];
 
     of << "optimal weight to IDF score is " << optimal_wgt << endl;
