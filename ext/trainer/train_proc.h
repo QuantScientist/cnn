@@ -510,6 +510,7 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
 
                 if (best_res.size() > 0)
                 {
+                    srec.clear();
                     cout << "res response: ";
                     for (auto p : best_res){
                         cout << sd.Convert(p) << " ";
