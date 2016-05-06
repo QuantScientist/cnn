@@ -473,9 +473,6 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
 
             if (rerankIDF > 0)
             {
-                cnn::real max_idf_score = -10000.0;
-                size_t kbest_idx = 0;
-
                 beam_search_results = am.get_beam_decode_complete_list();
 
                 /// averaged_log_likelihood , idf_score, bleu_score
@@ -593,6 +590,12 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
         return false;
     }
 
+    if (rerankIDF != 1)
+    {
+      cerr << "need to set rerankIDF to 1" << endl;
+      return false;
+    }
+
     ofstream of(out_file);
 
     Timer iteration("completed in");
@@ -621,19 +624,9 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
 
             if (turn_id == 0)
-            {
-                if (beam_search_decode == -1)
-                    res = am.decode(turn.first, cg, sd);
-                else
-                    res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
-            }
+	      res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
             else
-            {
-                if (beam_search_decode == -1)
-                    res = am.decode(prv_turn.second, turn.first, cg, sd);
-                else
-                    res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
-            }
+	      res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
 
             sref.clear();
             if (turn.second.size() > 0)
@@ -645,10 +638,9 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
 
             if (rerankIDF > 0)
             {
-                cnn::real max_idf_score = -10000.0;
-                size_t kbest_idx = 0;
-
                 beam_search_results = am.get_beam_decode_complete_list();
+		if (beam_search_results.empty())
+		  cerr << "beam search complete list is empty " << endl;
 
                 /// averaged_log_likelihood , idf_score, bleu_score
                 /// the goal is to rerank using averaged_log_likelihood + weight * idf_score
@@ -681,7 +673,7 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
         samples++;
         cout << " " << samples; 
         if (samples % 100 == 0)
-            cout << "finished " << samples / (devel.size() + 0.0) * 100 << endl;
+            cout << "finished " << samples / (devel.size() + 0.0) * 100 << "%" << endl;
     }
     cout << "completed decoding" << endl;
 
@@ -693,8 +685,6 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
     for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.05)
     {
         v_wgts.push_back(idf_wgt);
-
-	cout << "idf weight = " << idf_wgt << endl;
 
         cnn::real avg_bleu_score = 0;
         for (auto t : dev_set_rerank_scores)
@@ -717,6 +707,8 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
 
             if (idx >= 0)
 	      avg_bleu_score += std::get<2>(t[idx]);
+	    else
+	      cerr << "warning no bleu scores " << endl;
         }
         v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
 
@@ -808,9 +800,6 @@ bool TrainProcess<AM_t>::MERT_tune_edit_distance(Model &model, AM_t &am, Corpus 
 
             if (rerankIDF > 0)
             {
-                cnn::real max_idf_score = -10000.0;
-                size_t kbest_idx = 0;
-
                 beam_search_results = am.get_beam_decode_complete_list();
 
                 /// averaged_log_likelihood , idf_score, bleu_score
@@ -1139,9 +1128,6 @@ void TrainProcess<AM_t>::dialogue(Model &model, AM_t &am, string out_file, Dict 
 
             if (rerankIDF > 0)
             {
-                cnn::real max_idf_score = -10000.0;
-                size_t kbest_idx = 0;
-
                 beam_search_results = am.get_beam_decode_complete_list();
 
                 cnn::real largest_score = -10000.0;
@@ -1856,10 +1842,6 @@ void TrainProcess<AM_t>::REINFORCE_batch_train(Model &model, AM_t &am, AM_t &am_
         (!sgd_update_epochs && si < training.size()))  /// run one pass of the data
     {
         Timer iteration("completed in");
-        cnn::real dloss = 0;
-        cnn::real dchars_s = 0;
-        cnn::real dchars_t = 0;
-
         training_set_scores->reset();
 
         PDialogue v_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
