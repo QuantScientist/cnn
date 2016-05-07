@@ -2722,6 +2722,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
     cnn::real & largest_cost, cnn::real reward_baseline, cnn::real threshold_prob,
     bool do_gradient_check)
 {
+    long total_diags = 0;
     cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
 
     reset_smoothed_ppl(ppl_hist);
@@ -2748,10 +2749,14 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
         REINFORCE_batch_train(model, hred, hred_agent_mirrow, 
             training, devel, sgd, td, out_file, 1, nparallel, largest_cost, false, false, do_gradient_check, false, 
             reward_baseline, threshold_prob);
+	total_diags += training.size();
 
         dr.join(); /// synchroze data thread and main thread
         training = dr.corpus();
         training_numturn2did = get_numturn2dialid(training);
+
+	/// save models for every batch of data
+	save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model);
 
         if (training.size() == 0)
         {
@@ -2760,10 +2765,6 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
             dr.join(); /// make sure data is completely read
             training = dr.corpus();  /// copy the data from data thread to the data to be used in the main thread
             training_numturn2did = get_numturn2dialid(training);
-            //#define DEBUG
-#ifndef DEBUG
-            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
-#endif
             sgd.update_epoch();
 
 #ifndef DEBUG
