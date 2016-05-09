@@ -501,9 +501,20 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     return corpus;
 }
 
+/// read corpus, assuming text data
+/// for speed-up, read the data as binary into a memory, and process them using stringsteam
 Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS, int maxSentLength, bool backofftounk, bool bcharacter)
 {
-    ifstream in(filename);
+    long l_file_size = get_file_size(filename);
+    char * temp_buf = new char[l_file_size];
+
+    ifstream in(filename.c_str(), ifstream::binary);
+    in.read(temp_buf, l_file_size);
+    in.close();
+
+    stringstream ss;
+    ss << temp_buf;
+
     string line;
 
     Corpus corpus;
@@ -511,7 +522,7 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     string prv_diagid = "-1";
     int lc = 0, stoks = 0, ttoks = 0;
 
-    while (getline(in, line)) {
+    while (getline(ss, line)) {
         trim_left(line);
         trim_right(line);
         if (line.length() == 0)
@@ -545,6 +556,7 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
 
         if ((source.front() != kSRC_SOS && source.back() != kSRC_EOS)) {
             cerr << "Sentence in " << filename << ":" << lc << " didn't start or end with <s>, </s>\n";
+            delete temp_buf;
             abort();
         }
     }
@@ -552,6 +564,8 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     if (diag.size() > 0)
         corpus.push_back(diag);
     cerr << lc << " lines, " << stoks << " & " << ttoks << " tokens (s & t), " << sd.size() << " & " << sd.size() << " types\n";
+
+    delete temp_buf;
     return corpus;
 }
 
@@ -1336,10 +1350,17 @@ vector<cnn::real> read_embedding(const string& line, Dict& sd, int & index)
 
 void read_embedding(const string& embedding_fn, Dict& sd, map<int, vector<cnn::real>> & vWordEmbedding)
 {
-    ifstream in(embedding_fn);
+    long lfsize = get_file_size(embedding_fn);
+    char * temp = new char[lfsize];
+    ifstream in(embedding_fn, ifstream::binary);
+    in.read(temp, lfsize);
+    in.close();
+
+    stringstream ss; 
+    ss << temp;
     string line;
 
-    while (getline(in, line)) {
+    while (getline(ss, line)) {
 
         int wrd_idx;
 
@@ -1347,8 +1368,6 @@ void read_embedding(const string& embedding_fn, Dict& sd, map<int, vector<cnn::r
         if (wrd_idx >= 0)
             vWordEmbedding[wrd_idx] = iv;
     }
-
-    in.close();
 
     // generate word embedding for unknown words by averaging 100 words
     vector<cnn::real> iv = vWordEmbedding.begin()->second;
@@ -1369,6 +1388,8 @@ void read_embedding(const string& embedding_fn, Dict& sd, map<int, vector<cnn::r
             continue;
         vWordEmbedding[sd.Convert(p)] = iv;
     }
+
+    delete temp;
 }
 
 string builder_flavour(variables_map vm)
@@ -1511,3 +1532,14 @@ void check_value(int n, const cnn::real* val, string str)
     }
 }
 
+long get_file_size(std::string filename)
+{
+    streampos begin, end;
+
+    ifstream myfile(filename, ios::binary);
+    begin = myfile.tellg();
+    myfile.seekg(0, ios::end);
+    end = myfile.tellg();
+    myfile.close();
+    return end - begin;
+}
