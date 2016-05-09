@@ -2652,8 +2652,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
 
     DataReader dr(train_filename);
     int trial = 0;
-    dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
-    dr.join();
+    dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
 
     Corpus training = dr.corpus();
     training_numturn2did = get_numturn2dialid(training);
@@ -2662,20 +2661,16 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     {
         Timer this_epoch("this epoch completed in");
 
-        dr.detach();
-        dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
-
         batch_train(model, am, training, devel, sgd, out_file, 1, nparallel, largest_cost, segmental_training, false, do_gradient_check, false, do_padding, kSRC_EOS);
 
-        dr.join(); /// synchroze data thread and main thread
+        dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
         training = dr.corpus();
         training_numturn2did = get_numturn2dialid(training);
 
         if (training.size() == 0)
         {
             dr.restart();
-            dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
-            dr.join(); /// make sure data is completely read
+            dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
             training = dr.corpus();  /// copy the data from data thread to the data to be used in the main thread
             training_numturn2did = get_numturn2dialid(training);
             //#define DEBUG
@@ -2729,8 +2724,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
 
     DataReader dr(train_filename);
     int trial = 0;
-    dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
-    dr.join();
+    dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
 
     Corpus training = dr.corpus();
     training_numturn2did = get_numturn2dialid(training);
@@ -2744,25 +2738,22 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
     while (sgd.epoch < max_epochs)
     {
         Timer this_epoch("this epoch completed in");
-        dr.detach();
-        dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
         REINFORCE_batch_train(model, hred, hred_agent_mirrow, 
             training, devel, sgd, td, out_file, 1, nparallel, largest_cost, false, false, do_gradient_check, false, 
             reward_baseline, threshold_prob);
-	total_diags += training.size();
+    	total_diags += training.size();
 
-        dr.join(); /// synchroze data thread and main thread
+        dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
         training = dr.corpus();
         training_numturn2did = get_numturn2dialid(training);
 
-	/// save models for every batch of data
-	save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model);
+	    /// save models for every batch of data
+	    save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model);
 
         if (training.size() == 0)
         {
             dr.restart();
-            dr.start(sd, kSRC_SOS, kSRC_EOS, epochsize);
-            dr.join(); /// make sure data is completely read
+            dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
             training = dr.corpus();  /// copy the data from data thread to the data to be used in the main thread
             training_numturn2did = get_numturn2dialid(training);
             sgd.update_epoch();
