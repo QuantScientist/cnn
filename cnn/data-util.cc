@@ -1463,6 +1463,7 @@ void DataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_siz
         m_Corpus.push_back(diag);
     cerr << "from corpus " << m_Filename << ": " << lc << " lines, " << stoks << " & " << ttoks << " tokens (s & t), " << sd.size() << " & " << sd.size() << " types\n";
 }
+
 bool is_nan( const cnn::real & value)
 {
     return value != value;

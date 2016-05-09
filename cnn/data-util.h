@@ -198,47 +198,7 @@ std::string builder_flavour(variables_map vm);
 /// remove the firest and the last element
 vector<int> remove_first_and_last(const vector<int>& rep);
 
-/**
-using own thread to read data into a host memory
-*/
-class DataReader{
-private : 
-    boost::thread m_Thread; 
-    std::ifstream m_ifs;
-    string        m_Filename; /// the file name
-    Corpus        m_Corpus;   /// the corpsu;
-
-    void read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size);
-
-public:
-    DataReader(const string& train_filename)
-    {
-        m_Filename = train_filename; 
-        m_ifs.open(train_filename);
-    }
-
-    ~DataReader() { m_ifs.close();  }
-
-    void restart()
-    {
-        m_ifs.close();
-        m_ifs.open(m_Filename);
-    }
-
-    void start(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size)
-    {
-        m_Thread = boost::thread(&DataReader::read_corpus, this, sd, kSRC_SOS, kSRC_EOS, part_size);
-    }
-
-    Corpus corpus()
-    {
-        return m_Corpus;
-    }
-
-    void join() { m_Thread.join(); }
-    void detach() { m_Thread.detach();  }
-};
-
+///
 bool is_nan(const cnn::real & value);
 
 void display_value(int n, const cnn::real* val, string str);
@@ -249,3 +209,45 @@ void check_value(int n, const cnn::real* val, string str);
 /// get the size of data
 long get_file_size(std::string filename);
 
+/**
+using own thread to read data into a host memory
+*/
+class DataReader{
+private : 
+    std::stringstream m_ifs;
+    string        m_Filename; /// the file name
+    Corpus        m_Corpus;   /// the corpsu;
+    char         *m_temp;     /// temp char space
+
+public:
+    DataReader(const string& train_filename)
+    {
+        m_Filename = train_filename; 
+        long lfsize = get_file_size(train_filename);
+        m_temp = new char[lfsize];
+
+        ifstream ifs;
+        ifs.open(train_filename, ifstream::binary);
+        ifs.read(m_temp, lfsize);
+        ifs.close();
+
+        m_ifs << m_temp;
+    }
+
+    ~DataReader() { if (m_temp) delete m_temp; }
+
+    void read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size);
+
+    void restart()
+    {
+        m_ifs.str("");
+        m_ifs.clear();
+        
+        m_ifs << m_temp; 
+    }
+
+    Corpus corpus()
+    {
+        return m_Corpus;
+    }
+};
