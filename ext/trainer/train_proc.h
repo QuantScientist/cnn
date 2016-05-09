@@ -199,6 +199,7 @@ public:
         Corpus &devel,
         Trainer &sgd, Dict& td,
         string out_file, 
+        string model_file_name,
         int max_epochs, int nparallel, int epochsize,
         cnn::real & largest_cost, cnn::real reward_baseline, cnn::real threshold_prob,
         bool do_gradient_check);
@@ -2712,7 +2713,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
     AM_t &hred , AM_t& hred_agent_mirrow, 
     Corpus &devel,
     Trainer &sgd, Dict& td, 
-    string out_file, 
+    string out_file, string model_file_name,
     int max_epochs, int nparallel, int epochsize,
     cnn::real & largest_cost, cnn::real reward_baseline, cnn::real threshold_prob,
     bool do_gradient_check)
@@ -2748,7 +2749,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
         training_numturn2did = get_numturn2dialid(training);
 
 	    /// save models for every batch of data
-	    save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model);
+        save_cnn_model(model_file_name + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model);
 
         if (training.size() == 0)
         {
@@ -2769,7 +2770,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
                     /// save the model with the best performance on the dev set
                     largest_dev_cost = ddloss;
 
-                    save_cnn_model(out_file, &model);
+                    save_cnn_model(model_file_name, &model);
                 }
                 else{
                     sgd.eta0 *= 0.5; /// reduce learning rate
