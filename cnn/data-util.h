@@ -245,3 +245,7 @@ void display_value(int n, const cnn::real* val, string str);
 
 /// find if there is nan
 void check_value(int n, const cnn::real* val, string str);
+
+/// get the size of data
+long get_file_size(std::string filename);
+

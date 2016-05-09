@@ -245,16 +245,9 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     if (vm.count("getidf") > 0)
     {
         Corpus idfcorpus;
-        cerr << "Reading dev data from " << vm["getidf"].as<string>() << "...\n";
-        ifstream ifs(vm["getidf"].as<string>().c_str());
-        if (ifs.is_open())
-            idfcorpus = read_corpus(ifs, sd, kSRC_SOS, kSRC_EOS, -1);
-        else
-        {
-            cerr << "cannot open " << vm["getidf"].as<string>() << endl;
-            throw std::runtime_error("cannot open file to read into corpus");
-        }
-        ifs.close();
+        cerr << "Preparing idf with data from " << vm["getidf"].as<string>() << "...\n";
+        idfcorpus = read_corpus(vm["getidf"].as<string>().c_str(), sd, kSRC_SOS, kSRC_EOS, 10000, false, false);
+
         ptrTrainer->get_idf(vm, idfcorpus, sd);
     }
 
