@@ -27,6 +27,7 @@ typedef vector<FCorpus*>  FCorpusPointers;
 
 typedef vector<int> Sentence;
 typedef vector<Sentence> Sentences;
+typedef vector<Sentences> CandidateSentencesList;
 typedef pair<Sentence, Sentence> SentencePair;
 typedef vector<SentencePair> Dialogue;
 typedef vector<Dialogue> Corpus;
@@ -116,6 +117,7 @@ Sentences padding_with_eos(const Sentences& v_sent, int padding_symbol, bool  pa
 
 /// return the index of the selected dialogues
 vector<int> get_same_length_dialogues(Corpus corp, int nbr_dialogues, size_t &min_nbr_turns, vector<bool>& used, PDialogue& selected, NumTurn2DialogId& info);
+vector<CandidateSentencesList> get_candidate_responses(PDialogue& selected, Corpus &training);
 
 /**
 read corpus

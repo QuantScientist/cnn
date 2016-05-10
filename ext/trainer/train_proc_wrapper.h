@@ -176,6 +176,13 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             cerr << "missing --outputfile" << endl;
             throw std::invalid_argument("missing --outputfile");
         }
+
+        if (vm.count("ranker"))
+        {
+            cerr << "Reading training corpus from " << vm["train"].as<string>() << "...\n";
+            training = read_corpus(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["mbsize"].as<int>(), true);
+        }
+
     }
 
     string fname;
@@ -354,13 +361,17 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             ptrTrainer->MERT_tune_edit_distance(model, hred, devel, vm["outputfile"].as<string>(), sd, weight_IDF);
     }
 
-    else if (vm.count("testcorpus") && testcorpus.size() > 0)
+    else if (vm.count("testcorpus") && testcorpus.size() > 0 && !vm.count("ranker"))
     {
         if (vm.count("outputfile") == 0)
         {
             throw std::invalid_argument("missing recognition output file");
         }
         ptrTrainer->test(model, hred, testcorpus, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
+    }
+    else if (vm.count("ranker") && testcorpus.size() > 0 && training.size() > 0)
+    {
+        ptrTrainer->testRanking(model, hred, testcorpus, training, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
     }
     else
     {

@@ -263,6 +263,36 @@ vector<int> get_same_length_dialogues(Corpus corp, int nbr_dialogues, size_t &mi
     return v_sel_idx; 
 }
 
+vector<CandidateSentencesList> get_candidate_responses(PDialogue& selected, Corpus &training)
+{
+    Sentences responses;
+    for (auto t : training)
+    {
+        for (auto s : t)
+        {
+            responses.push_back(s.second);
+        }
+    }
+
+    vector<CandidateSentencesList> csls;
+    int nutt = selected[0].size();
+
+    for (size_t ii = 0; ii < nutt; ii++)
+    {
+        CandidateSentencesList csl;
+        random_shuffle(responses.begin(), responses.end());
+        for (size_t i = 0; i < selected.size(); i++)
+        {
+            vector<Sentence>::const_iterator first = responses.begin() + i * MAX_NUMBER_OF_CANDIDATES -1;
+            vector<Sentence>::const_iterator last = responses.begin() + (i + 1) * MAX_NUMBER_OF_CANDIDATES -1;
+            Sentences newVec(first, last);
+            csl.push_back(newVec);
+        }
+        csls.push_back(csl);
+    }
+    return csls;
+}
+
 std::wstring utf8_to_wstring(const std::string& str)
 {
     return utf_to_utf<wchar_t>(str.c_str(), str.c_str() + str.size());

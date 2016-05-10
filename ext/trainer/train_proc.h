@@ -58,7 +58,7 @@ using namespace boost::program_options;
 #ifdef CUDA
 #define NBR_DEV_PARALLEL_UTTS 2
 #else
-#define NBR_DEV_PARALLEL_UTTS 10
+#define NBR_DEV_PARALLEL_UTTS 5
 #endif
 
 #define LEVENSHTEIN_THRESHOLD 5
@@ -216,6 +216,7 @@ public:
     void test(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test_segmental(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test(Model &model, Proc &am, TupleCorpus &devel, string out_file, Dict & sd, Dict & td);
+    void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool);
 
     void dialogue(Model &model, Proc &am, string out_file, Dict & td);
 
@@ -233,6 +234,11 @@ public:
     /// for reranking
     bool MERT_tune(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     bool MERT_tune_edit_distance(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd, cnn::real weight_IDF=0.1);
+
+public:
+    /// for test ranking candidate
+    
+    unsigned segmental_forward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, vector<CandidateSentencesList> &, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
 
 public:
     /// for LDA
@@ -287,7 +293,7 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     Timer iteration("completed in");
 
     /// report BLEU score
-    test(model, am, devel, out_file + "bleu", sd);
+    //test(model, am, devel, out_file + "bleu", sd);
 
     dev_set_scores->reset();
 
@@ -349,6 +355,67 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
 
         delete ptr_evaluate;
     }
+
+    of.close();
+}
+
+/**
+Test recall value 
+*/
+
+template <class AM_t>
+void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& test_corpusinfo,
+    bool segmental_training)
+{
+    unsigned lines = 0;
+    unsigned hits = 0;
+
+    ofstream of(out_file);
+
+    Timer iteration("completed in");
+
+    dev_set_scores->reset();
+
+
+    vector<bool> vd_selected(devel.size(), false);  /// track if a dialgoue is used
+    size_t id_stt_diag_id = 0;
+    PDialogue vd_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
+    vector<int> id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
+    size_t ndutt = id_sel_idx.size();
+
+    lines += ndutt;
+    vector<CandidateSentencesList> csls = get_candidate_responses(vd_dialogues, train_corpus);
+
+    while (ndutt > 0)
+    {
+        if (segmental_training)
+            hits += segmental_forward_ranking(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false);
+        else
+            nosegmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, true);
+
+        id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
+        ndutt = id_sel_idx.size();
+        lines += ndutt;
+        csls = get_candidate_responses(vd_dialogues, train_corpus);
+
+        if (verbose)
+        {
+            cerr << "selected " << ndutt << " :  ";
+            for (auto p : id_sel_idx)
+                cerr << p << " ";
+            cerr << endl;
+        }
+    }
+
+
+    //dev_set_scores->compute_score();
+    /*cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
+    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';*/
+
+    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] hits = " << hits <<", " << hits/cnn::real(lines) <<"%." << ' ';
+    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] hits = " << hits << ", " << hits / cnn::real(lines) << "%." << ' ';
+
+    /// if report score in embedding space
 
     of.close();
 }
@@ -1695,6 +1762,88 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
         turn_id++;
         i_turns++;
     }
+}
+
+template <class AM_t>
+unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, vector<CandidateSentencesList> &csls , int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+{
+    size_t turn_id = 0;
+    size_t i_turns = 0;
+    unsigned hits = 0;
+    size_t num_candidate = csls[0][0].size();
+    vector<Expression> v_errs;
+    vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
+
+    PTurn prv_turn;
+
+    if (verbose)
+        cout << "start segmental_forward_backward" << endl;
+
+    size_t idx = 0;
+    for (auto turn : v_v_dialogues)
+    {
+        bool true_response = true;
+        for (size_t i = 0; i < num_candidate; i++)
+        {
+            if (true_response)
+            {
+                i--;
+                true_response = false;
+            }
+            else
+            {
+                for (size_t ii = 0; ii < nutt; ii++)
+                    turn[ii].second = csls[ii][idx][i];
+            }
+            
+            ComputationGraph cg;
+            if (resetmodel)
+            {
+                am.reset();
+            }
+
+            if (turn_id == 0)
+            {
+                v_errs = am.build_graph(turn, cg);
+            }
+            else
+            {
+                v_errs = am.build_graph(prv_turn, turn, cg);
+            }
+
+            if (verbose) cout << "after graph build" << endl;
+            for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx ++)
+            {
+                Tensor tv = cg.get_value(v_errs[err_idx]);
+                costs[err_idx].push_back(TensorTools::AccessElement(tv,0));
+            }
+            
+       }
+        
+       /* TensorTools::PushElementsToMemory(scores->training_score_current_location,
+            scores->training_score_buf_size,
+            scores->training_scores,
+            tv);*/
+        
+        for (size_t i = 0; i < costs.size(); i++)
+        {
+            cnn::real true_cost = costs[i][0];
+            sort(costs[i].begin(), costs[i].end());
+            vector<cnn::real>::iterator iter = find(costs[i].begin(), costs[i].end(), true_cost);
+            if (distance(costs[i].begin(), iter) == 0)
+            {
+                hits++;
+            }
+
+        }
+
+        prv_turn = turn;
+        turn_id++;
+        i_turns++;
+        idx++;
+    }
+
+    return hits;
 }
 
 /**
