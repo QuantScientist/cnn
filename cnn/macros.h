@@ -64,10 +64,15 @@ typedef float real;
 /// for speed-up
 #define MAX_NUMBER_OF_HYPOTHESIS 200
 
-#define MAX_NUMBER_OF_CANDIDATES 50
+/// for ranker 
+#define MAX_NUMBER_OF_CANDIDATES 49
 
 /// for random number generation
 /// use curand to generate random numbers
 /// #ifdef USE_CURAND
+
+/// for decoding, the number of sentences to be evaluated
+#define NBR_DEV_PARALLEL_UTTS 5
+
 
 };
