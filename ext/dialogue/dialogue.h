@@ -218,6 +218,23 @@ public:
         }
     }
 
+    /// serialise to an external memory
+    void serialise_cxt_to_external_memory(ComputationGraph& cg, Builder& combiner, vector<vector<cnn::real>> & ext_memory)
+    {
+        int stt = 0;
+        ext_memory.clear();
+        for (const auto &p : combiner.final_s())
+        {
+            Tensor tv = cg.get_value(p);
+            vector<cnn::real> tmp(tv.d.size());
+#ifdef HAVE_CUDA
+            cudaMemcpyAsync(&tmp[0], tv.v, sizeof(cnn::real) * tv.d.size(), cudaMemcpyDeviceToHost);
+#else
+            memcpy(&tmp[0], tv.v, sizeof(cnn::real) * tv.d.size());
+#endif
+            ext_memory.push_back(tmp);
+        }
+    }
 
     /**
     1) save context hidden state
@@ -261,6 +278,12 @@ public:
             ik++;
         }
         last_decoder_s = v_last_d;
+    }
+
+    /// serialise the context to external memory in CPU
+    void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
+    {
+        serialise_cxt_to_external_memory(cg, context, ext_memory);
     }
 
     /**
@@ -335,9 +358,21 @@ public:
         src_words = 0;
     }
 
-    void assign_cxt(ComputationGraph &cg, unsigned int nutt,
-        std::vector<std::vector<std::vector<cnn::real>>>& v_last_cxt_s)
+    void copy_external_memory_to_cxt(ComputationGraph &cg, unsigned int nutt,
+        const std::vector<std::vector<cnn::real>>& v_last_cxt_s)
     {
+        assert(v_last_cxt_s.size() == last_cxt_s.size());
+
+        for (int l = 0; l < v_last_cxt_s.size(); l++)
+        {
+            int row = v_last_cxt_s[l].size() / nutt;
+
+#ifdef HAVE_CUDA
+            CUDA_CHECK(cudaMemcpy(last_cxt_s[l], &v_last_cxt_s[l][0], sizeof(cnn::real) * v_last_cxt_s[l].size(), cudaMemcpyHostToDevice));
+#else
+            memcpy(last_cxt_s[l], &v_last_cxt_s[l][0], sizeof(cnn::real) * v_last_cxt_s[l].size()); 
+#endif
+        }
     }
 
     void assign_cxt(ComputationGraph &cg,
