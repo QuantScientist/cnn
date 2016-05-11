@@ -371,7 +371,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     }
     else if (vm.count("ranker") && testcorpus.size() > 0 && training.size() > 0)
     {
-        ptrTrainer->testRanking(model, hred, testcorpus, training, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
+        ptrTrainer->testRanking(model, hred, testcorpus, training, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["ranking_using_tfidf"].as<bool>());
     }
     else
     {
