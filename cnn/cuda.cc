@@ -55,7 +55,7 @@ void Free_GPU()
 #endif
 }
 
-void Initialize_GPU(int& argc, char**& argv, unsigned random_seed) {
+void Initialize_GPU(int& argc, char**& argv, unsigned random_seed, int prefered_device_id) {
   int nDevices;
   CUDA_CHECK(cudaGetDeviceCount(&nDevices));
   if (nDevices < 1) {
@@ -64,7 +64,15 @@ void Initialize_GPU(int& argc, char**& argv, unsigned random_seed) {
   }
   size_t free_bytes, total_bytes, max_free = 0;
   int selected = 0;
-  for (int i = 0; i < nDevices; i++) {
+  int i = 0;
+  if (prefered_device_id < 0)
+      i = 0;
+  else{
+      /// only use a particular GPU
+      i = prefered_device_id;
+      nDevices = 1;
+  }
+  for (; i < nDevices; i++) {
     cudaDeviceProp prop;
     CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
     cerr << "[cnn] Device Number: " << i << endl;
