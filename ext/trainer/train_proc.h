@@ -55,14 +55,6 @@ using namespace std;
 using namespace cnn;
 using namespace boost::program_options;
 
-#ifdef CUDA
-#define NBR_DEV_PARALLEL_UTTS 2
-#else
-#define NBR_DEV_PARALLEL_UTTS 5
-#endif
-
-#define LEVENSHTEIN_THRESHOLD 5
-
 extern unsigned LAYERS;
 extern unsigned HIDDEN_DIM;  // 1024
 extern unsigned ALIGN_DIM;  // 1024
@@ -237,8 +229,8 @@ public:
 
 public:
     /// for test ranking candidate
-    
-    unsigned segmental_forward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, vector<CandidateSentencesList> &, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
+    /// @return a pair of numbers for top_1 and top_5 hits
+    pair<unsigned, unsigned> segmental_forward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
 
 public:
     /// for LDA
@@ -368,7 +360,8 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
     bool segmental_training)
 {
     unsigned lines = 0;
-    unsigned hits = 0;
+    unsigned hits_top_1 = 0;
+    unsigned hits_top_5 = 0;
 
     ofstream of(out_file);
 
@@ -376,6 +369,8 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
 
     dev_set_scores->reset();
 
+    /// get all responses from training set, these responses will be used as negative samples
+    Sentences negative_responses = get_all_responses(train_corpus);
 
     vector<bool> vd_selected(devel.size(), false);  /// track if a dialgoue is used
     size_t id_stt_diag_id = 0;
@@ -383,20 +378,22 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
     vector<int> id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
     size_t ndutt = id_sel_idx.size();
 
-    lines += ndutt;
-    vector<CandidateSentencesList> csls = get_candidate_responses(vd_dialogues, train_corpus);
+    lines += ndutt * vd_dialogues.size();
+
+    long rand_pos = 0;
+    CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
 
     while (ndutt > 0)
     {
-        if (segmental_training)
-            hits += segmental_forward_ranking(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false);
-        else
-            nosegmental_forward_backward(model, am, vd_dialogues, ndutt, dev_set_scores, true);
+        pair<unsigned, unsigned> this_hit = segmental_forward_ranking(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false);
+        hits_top_1 += this_hit.first;
+        hits_top_5 += this_hit.second;
 
         id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
         ndutt = id_sel_idx.size();
-        lines += ndutt;
-        csls = get_candidate_responses(vd_dialogues, train_corpus);
+        lines += ndutt * vd_dialogues.size();
+
+        csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
 
         if (verbose)
         {
@@ -408,14 +405,9 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
     }
 
 
-    //dev_set_scores->compute_score();
-    /*cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';
-    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] E = " << (dev_set_scores->dloss / dev_set_scores->twords) << " ppl=" << exp(dev_set_scores->dloss / dev_set_scores->twords) << ' ';*/
 
-    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] hits = " << hits <<", " << hits/cnn::real(lines) <<"%." << ' ';
-    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] hits = " << hits << ", " << hits / cnn::real(lines) << "%." << ' ';
-
-    /// if report score in embedding space
+    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES+1) << " R@1 " << hits_top_1 / lines *100.0 <<"%." << ' ';
+    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / lines *100.0 << "%." << ' ';
 
     of.close();
 }
@@ -1764,13 +1756,16 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
     }
 }
 
+/**
+return hit at rank0 (top-1) and hit within rank4 (top-5)
+*/
 template <class AM_t>
-unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, vector<CandidateSentencesList> &csls , int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls , int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
     size_t turn_id = 0;
     size_t i_turns = 0;
-    unsigned hits = 0;
-    size_t num_candidate = csls[0][0].size();
+    unsigned hits_top_5 = 0, hits_top_1 = 0;
+    size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
     vector<Expression> v_errs;
     vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
 
@@ -1779,11 +1774,15 @@ unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, P
     if (verbose)
         cout << "start segmental_forward_backward" << endl;
 
+    /// the negative candidate number should match to that expected
+    assert(MAX_NUMBER_OF_CANDIDATES == csls[0].size());
+
+    vector<vector<cnn::real>> correct_response_state;
     size_t idx = 0;
     for (auto turn : v_v_dialogues)
     {
         bool true_response = true;
-        for (size_t i = 0; i < num_candidate; i++)
+        for (int i = 0; i < num_candidate; i++)
         {
             if (true_response)
             {
@@ -1793,7 +1792,7 @@ unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, P
             else
             {
                 for (size_t ii = 0; ii < nutt; ii++)
-                    turn[ii].second = csls[ii][idx][i];
+                    turn[ii].second = csls[idx][i];
             }
             
             ComputationGraph cg;
@@ -1808,6 +1807,9 @@ unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, P
             }
             else
             {
+                am.copy_external_memory_to_cxt(cg, nutt, correct_response_state);  /// reset state to that coresponding to the correct response history for negative responses
+                /// because this turn is dependent on the previous turn that is with the correct response
+
                 v_errs = am.build_graph(prv_turn, turn, cg);
             }
 
@@ -1817,7 +1819,12 @@ unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, P
                 Tensor tv = cg.get_value(v_errs[err_idx]);
                 costs[err_idx].push_back(TensorTools::AccessElement(tv,0));
             }
-            
+
+            if (i == -1)
+            {
+                /// this is the context with the correct responses history
+                am.serialise_cxt_to_external_memory(cg, correct_response_state);
+            }
        }
         
        /* TensorTools::PushElementsToMemory(scores->training_score_current_location,
@@ -1828,11 +1835,15 @@ unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, P
         for (size_t i = 0; i < costs.size(); i++)
         {
             cnn::real true_cost = costs[i][0];
-            sort(costs[i].begin(), costs[i].end());
-            vector<cnn::real>::iterator iter = find(costs[i].begin(), costs[i].end(), true_cost);
-            if (distance(costs[i].begin(), iter) == 0)
+            vector<size_t> sorted_idx = sort_indexes<cnn::real>(costs[i]);
+            vector<size_t>::iterator iter = find(sorted_idx.begin(), sorted_idx.end(), 0);
+            if (distance(sorted_idx.begin(), iter) == 0)
             {
-                hits++;
+                hits_top_1++;
+            }
+            if (distance(sorted_idx.begin(), iter) < 5)
+            {
+                hits_top_5++;
             }
 
         }
@@ -1843,7 +1854,7 @@ unsigned TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, P
         idx++;
     }
 
-    return hits;
+    return make_pair(hits_top_1, hits_top_5);
 }
 
 /**
