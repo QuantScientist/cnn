@@ -1820,7 +1820,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx ++)
             {
                 Tensor tv = cg.get_value(v_errs[err_idx]);
-                costs[err_idx].push_back(TensorTools::AccessElement(tv,0));
+                costs[err_idx].push_back(TensorTools::AccessElement(tv,0)/turn[err_idx].second.size());
             }
 
             if (i == num_candidate)

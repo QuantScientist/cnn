@@ -109,6 +109,7 @@ class MultiSource_LinearEncoder : public DialogueBuilder<Builder, Decoder>{
 	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
 	
 	using DialogueBuilder<Builder, Decoder>::v_errs;
+    using DialogueBuilder<Builder, Decoder>::serialise;
 
 protected:
     /// time-dependent embedding weight
