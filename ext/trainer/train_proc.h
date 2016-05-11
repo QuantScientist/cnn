@@ -209,7 +209,7 @@ public:
     void test(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test_segmental(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test(Model &model, Proc &am, TupleCorpus &devel, string out_file, Dict & sd, Dict & td);
-    void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool);
+    void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool use_tfidf);
 
     void dialogue(Model &model, Proc &am, string out_file, Dict & td);
 
@@ -232,6 +232,7 @@ public:
     /// for test ranking candidate
     /// @return a pair of numbers for top_1 and top_5 hits
     pair<unsigned, unsigned> segmental_forward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
+    pair<unsigned, unsigned> segmental_forward_ranking_using_tfidf(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
 
 public:
     /// for LDA
@@ -358,7 +359,7 @@ Test recall value
 
 template <class AM_t>
 void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& test_corpusinfo,
-    bool segmental_training)
+    bool use_tfidf)
 {
     unsigned lines = 0;
     unsigned hits_top_1 = 0;
@@ -386,7 +387,12 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
 
     while (ndutt > 0)
     {
-        pair<unsigned, unsigned> this_hit = segmental_forward_ranking(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false);
+        pair<unsigned, unsigned> this_hit;
+        if (use_tfidf)
+            this_hit = segmental_forward_ranking_using_tfidf(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false);
+        else
+            this_hit = segmental_forward_ranking(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false);
+        
         hits_top_1 += this_hit.first;
         hits_top_5 += this_hit.second;
 
@@ -1761,7 +1767,7 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
 return hit at rank0 (top-1) and hit within rank4 (top-5)
 */
 template <class AM_t>
-pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls , int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
     size_t turn_id = 0;
     size_t i_turns = 0;
@@ -1798,9 +1804,9 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             else
             {
                 for (size_t ii = 0; ii < nutt; ii++)
-                    turn[ii].second = turn_back[ii].second; 
+                    turn[ii].second = turn_back[ii].second;
             }
-            
+
             ComputationGraph cg;
             if (resetmodel)
             {
@@ -1820,7 +1826,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             }
 
             if (verbose) cout << "after graph build" << endl;
-            for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx ++)
+            for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx++)
             {
                 Tensor tv = cg.get_value(v_errs[err_idx]);
                 cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
@@ -1838,8 +1844,8 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
                 /// this is the context with the correct responses history
                 am.serialise_cxt_to_external_memory(cg, correct_response_state);
             }
-       }
-       
+        }
+
         prv_turn_correct_response_state = correct_response_state;
 
         for (size_t i = 0; i < costs.size(); i++)
@@ -1859,6 +1865,96 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
         }
 
         prv_turn = turn;
+        turn_id++;
+        i_turns++;
+        idx++;
+    }
+
+    return make_pair(hits_top_1, hits_top_5);
+}
+
+/**
+return hit at rank0 (top-1) and hit within rank4 (top-5)
+using tf-idf 
+*/
+template <class AM_t>
+pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfidf(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+{
+    size_t turn_id = 0;
+    size_t i_turns = 0;
+    unsigned hits_top_5 = 0, hits_top_1 = 0;
+    size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
+    vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
+
+    TFIDFMetric tfidfScore(mv_idf, sd.size());
+
+    PTurn prv_turn, prv_turn_copy;
+
+    if (verbose)
+        cout << "start segmental_forward_backward" << endl;
+
+    /// the negative candidate number should match to that expected
+    assert(MAX_NUMBER_OF_CANDIDATES == csls[0].size());
+
+    size_t idx = 0;
+    for (auto turn : v_v_dialogues)
+    {
+        auto turn_back = turn;
+
+        /// assign context
+        for (int u = 0; u < nutt; u++)
+        {
+            prv_turn_copy[u].first.insert(prv_turn_copy[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+        }
+
+        for (int i = 0; i < num_candidate + 1; i++)
+        {
+            prv_turn = prv_turn_copy;
+
+            if (i < num_candidate)
+            {
+                for (size_t ii = 0; ii < nutt; ii++)
+                    turn[ii].second = csls[idx][i];
+            }
+            else
+            {
+                for (size_t ii = 0; ii < nutt; ii++)
+                    turn[ii].second = turn_back[ii].second;
+            }
+
+            for (int u = 0; u < nutt; u++)
+            {
+                vector<cnn::real> reftfidf = tfidfScore.GetStats(prv_turn[u].first);
+                vector<cnn::real> hyptfidf = tfidfScore.GetStats(turn[u].second);
+                /// compute cosine similarity
+                cnn::real sim = cnn::metric::cosine_similarity(reftfidf, hyptfidf);
+                cnn::real score = -sim; /// negative of similarity is cost
+
+                costs[u].push_back(score);
+            }
+
+        }
+
+        for (size_t i = 0; i < costs.size(); i++)
+        {
+            vector<size_t> sorted_idx = sort_indexes<cnn::real>(costs[i]);
+            vector<size_t>::iterator iter = find(sorted_idx.begin(), sorted_idx.end(), num_candidate);
+            if (distance(iter, sorted_idx.end()) == 1)
+            {
+                hits_top_1++;
+            }
+            if (distance(iter, sorted_idx.end()) <= 5)
+            {
+                hits_top_5++;
+            }
+
+        }
+
+        /// append this turn to context
+        for (int i = 0; i < nutt; i++)
+        {
+            prv_turn_copy[i].first.insert(prv_turn_copy[i].first.end(), turn[i].second.begin(), turn[i].second.end());
+        }
         turn_id++;
         i_turns++;
         idx++;
