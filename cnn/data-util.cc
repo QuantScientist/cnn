@@ -263,7 +263,9 @@ vector<int> get_same_length_dialogues(Corpus corp, int nbr_dialogues, size_t &mi
     return v_sel_idx; 
 }
 
-vector<CandidateSentencesList> get_candidate_responses(PDialogue& selected, Corpus &training)
+/// get a vector of responses, and theses responses can be the negative candidates
+/// for ranking experiments
+Sentences get_all_responses(Corpus &training)
 {
     Sentences responses;
     for (auto t : training)
@@ -273,22 +275,25 @@ vector<CandidateSentencesList> get_candidate_responses(PDialogue& selected, Corp
             responses.push_back(s.second);
         }
     }
+    return responses;
+}
 
-    vector<CandidateSentencesList> csls;
-    int nutt = selected[0].size();
+CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long &rand_pos)
+{
+    CandidateSentencesList csls;
+    int sz_negative_responses = negative_responses.size();
+    long big_odd_number = 1032911;
 
-    for (size_t ii = 0; ii < nutt; ii++)
+    for (size_t i = 0; i < selected.size(); i++)
     {
-        CandidateSentencesList csl;
-        random_shuffle(responses.begin(), responses.end());
-        for (size_t i = 0; i < selected.size(); i++)
+        Sentences newVec;
+        for (int k = 0; k < MAX_NUMBER_OF_CANDIDATES; k++)
         {
-            vector<Sentence>::const_iterator first = responses.begin() + i * MAX_NUMBER_OF_CANDIDATES -1;
-            vector<Sentence>::const_iterator last = responses.begin() + (i + 1) * MAX_NUMBER_OF_CANDIDATES -1;
-            Sentences newVec(first, last);
-            csl.push_back(newVec);
+            int pos = rand_pos % sz_negative_responses;
+            newVec.push_back(negative_responses[pos]);
+            rand_pos = (rand_pos + big_odd_number) % sz_negative_responses;
         }
-        csls.push_back(csl);
+        csls.push_back(newVec);
     }
     return csls;
 }
@@ -1530,7 +1535,7 @@ void display_value(int n, const cnn::real* val, string str)
 void check_value(int n, const cnn::real* val, string str)
 {
     bool b_is_nan = false;
-    int ik;
+    int ik = -1;
 #ifdef HAVE_CUDA
     cnn::real * cpu_mem = (cnn::real*)malloc(sizeof(cnn::real) * n);
     CUDA_CHECK(cudaMemcpy(cpu_mem, val, sizeof(cnn::real)*n, cudaMemcpyDeviceToHost));

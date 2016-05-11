@@ -15,6 +15,9 @@
 #include <boost/program_options/variables_map.hpp>
 #include <boost/thread.hpp>
 #include <fstream>
+#include <random>
+#include <iterator>
+#include <random>
 
 using namespace cnn;
 using namespace std;
@@ -117,7 +120,6 @@ Sentences padding_with_eos(const Sentences& v_sent, int padding_symbol, bool  pa
 
 /// return the index of the selected dialogues
 vector<int> get_same_length_dialogues(Corpus corp, int nbr_dialogues, size_t &min_nbr_turns, vector<bool>& used, PDialogue& selected, NumTurn2DialogId& info);
-vector<CandidateSentencesList> get_candidate_responses(PDialogue& selected, Corpus &training);
 
 /**
 read corpus
@@ -210,6 +212,27 @@ void check_value(int n, const cnn::real* val, string str);
 
 /// get the size of data
 long get_file_size(std::string filename);
+
+/// get a vector of responses, and theses responses can be the negative candidates
+/// for ranking experiments
+Sentences get_all_responses(Corpus &training);
+
+CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long& rand_pos);
+
+/// sort with index
+template <typename T>
+vector<size_t> sort_indexes(const vector<T> &v) {
+
+    // initialize original index locations
+    vector<size_t> idx(v.size());
+    for (size_t i = 0; i != idx.size(); ++i) idx[i] = i;
+
+    // sort indexes based on comparing values in v
+    sort(idx.begin(), idx.end(),
+        [&v](size_t i1, size_t i2) {return v[i1] < v[i2]; });
+
+    return idx;
+};
 
 /**
 using own thread to read data into a host memory
