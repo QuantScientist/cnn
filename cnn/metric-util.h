@@ -263,98 +263,64 @@ public:
 };
 
 
-/// compute averaged TF-IDF values
+/// accumulate tf-idf vectors for each input string
 class TFIDFMetric
 {
 private:
-    /// idf of references
-    double m_refidf;
-
-    /// idf of hypothesis
-    double m_hypidf; 
-
-    /// number of comparisons
-    unsigned long m_number_comparison;
+    vector<vector<cnn::real>> m_tfidf_value;
 
     vector<cnn::real> mv_idfs; 
+    int dim_size; 
 
 public:
 
-    TFIDFMetric(const vector<cnn::real>& idf_values)
+    TFIDFMetric(const vector<cnn::real>& idf_values, int dsize)
     {
         mv_idfs = idf_values;
-        m_number_comparison = 0; 
-        m_refidf = 0;
-        m_hypidf = 0;
+        dim_size = dsize;
     }
 
     ~TFIDFMetric()
     {}
 
-    void AccumulateScore(const vector<int> & refTokens, const vector<int> & hypTokens)
+    void AccumulateScore(const vector<int> & hypTokens)
     {
-        pair<cnn::real, cnn::real> stats = GetStats(refTokens, hypTokens);
-
-        m_refidf += stats.first;
-        m_hypidf += stats.second; 
-        m_number_comparison++;
+        m_tfidf_value.push_back(GetStats(hypTokens));
     }
 
-    pair<cnn::real, cnn::real> GetScore()
+    /// compute tf-idf
+    vector<cnn::real> GetStats(const vector<int> & hypTokens)
     {
-        cnn::real refidf = 0;
-        cnn::real hypidf = refidf; 
-        if (m_number_comparison > 0)
+        cnn::real hypidf = 0; 
+    	unordered_map<int, cnn::real> tf_hyp;
+
+        for (auto &p : hypTokens)
         {
-            refidf = m_refidf / m_number_comparison;
-            hypidf = m_hypidf / m_number_comparison;
+            if (tf_hyp.find(p) == tf_hyp.end())
+            {
+                tf_hyp[p] = 1;
+            }
+            else{
+                tf_hyp[p] = tf_hyp[p] + 1;
+            }
         }
-        return make_pair(refidf, hypidf);
-    }
-
-    pair<cnn::real , cnn::real> GetSentenceScore(const vector<int> & refTokens, const vector<int> & hypTokens)
-    {
-        pair<cnn::real, cnn::real> stats = GetStats(refTokens, hypTokens);
         
-        return stats;
-    }
-
-    /// compute the average of idf for reference and hypothesis
-    pair<cnn::real, cnn::real> GetStats(const vector<int> & refTokens, const vector<int> & hypTokens)
-    {
-        cnn::real refidf = 0, hypidf = 0; 
-	unordered_map<int, cnn::real> tf_ref, tf_hyp;
-
-        if (mv_idfs.size() > 0)
+        vector<cnn::real> v_tfidf(dim_size, 0.0);
+        for (unordered_map<int, cnn::real>::iterator ptr = tf_hyp.begin();
+            ptr != tf_hyp.end();
+            ptr++)
         {
-            if (refTokens.size() > 0)
-            {
-                for (const auto & p : refTokens)
-		{
-		  refidf += mv_idfs[p];
-		  if (tf_ref.find(p) == tf_ref.end())
-		    tf_ref[p] = 1;
-		  else
-		    tf_ref[p] = tf_ref[p] + 1;
+            v_tfidf[ptr->first] = ptr->second * mv_idfs[ptr->first]; /// get tf-idf
 		}
-                refidf /= refTokens.size();
-            }
 
-            if (hypTokens.size() > 0)
-            {
-                for (const auto & p : hypTokens)
-                    hypidf += mv_idfs[p];
-                hypidf /= hypTokens.size();
-            }
-        }
-
-        return make_pair(refidf, hypidf);
+        return v_tfidf;
     }
 };
 
 namespace cnn {
     namespace metric {
         int levenshtein_distance(const std::vector<std::string> &s1, const std::vector<std::string> &s2);
+        cnn::real cosine_similarity(const std::vector<cnn::real> &s1, const std::vector<cnn::real> &s2);
     }
 }
 
