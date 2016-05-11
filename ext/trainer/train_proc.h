@@ -1778,6 +1778,8 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     assert(MAX_NUMBER_OF_CANDIDATES == csls[0].size());
 
     vector<vector<cnn::real>> correct_response_state;
+    vector<vector<cnn::real>> prv_turn_correct_response_state;
+
     size_t idx = 0;
     for (auto turn : v_v_dialogues)
     {
@@ -1807,7 +1809,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             }
             else
             {
-                am.copy_external_memory_to_cxt(cg, nutt, correct_response_state);  /// reset state to that coresponding to the correct response history for negative responses
+                am.copy_external_memory_to_cxt(cg, nutt, prv_turn_correct_response_state);  /// reset state to that coresponding to the correct response history for negative responses
                 /// because this turn is dependent on the previous turn that is with the correct response
 
                 v_errs = am.build_graph(prv_turn, turn, cg);
@@ -1826,12 +1828,9 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
                 am.serialise_cxt_to_external_memory(cg, correct_response_state);
             }
        }
-        
-       /* TensorTools::PushElementsToMemory(scores->training_score_current_location,
-            scores->training_score_buf_size,
-            scores->training_scores,
-            tv);*/
-        
+       
+        prv_turn_correct_response_state = correct_response_state;
+
         for (size_t i = 0; i < costs.size(); i++)
         {
             cnn::real true_cost = costs[i][0];
