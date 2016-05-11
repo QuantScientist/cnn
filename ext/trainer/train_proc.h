@@ -1774,7 +1774,6 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     unsigned hits_top_5 = 0, hits_top_1 = 0;
     size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
     vector<Expression> v_errs;
-    vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
 
     IDFMetric idfScore(mv_idf);
 
@@ -1793,6 +1792,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     for (auto turn : v_v_dialogues)
     {
         auto turn_back = turn;
+        vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
 
         for (int i = 0; i < num_candidate + 1; i++)
         {
@@ -1884,7 +1884,6 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
     size_t i_turns = 0;
     unsigned hits_top_5 = 0, hits_top_1 = 0;
     size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
-    vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
 
     TFIDFMetric tfidfScore(mv_idf, sd.size());
 
@@ -1900,6 +1899,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
     for (auto turn : v_v_dialogues)
     {
         auto turn_back = turn;
+        vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
 
         /// assign context
         if (prv_turn.size() == 0)
