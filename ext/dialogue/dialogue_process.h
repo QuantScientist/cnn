@@ -149,9 +149,21 @@ namespace cnn {
             s2tmodel.assign_cxt(cg, nutt);
         }
 
+        void copy_external_memory_to_cxt(ComputationGraph& cg, size_t nutt, const vector<vector<cnn::real>>& external_state)
+        {
+            twords = 0;
+            swords = 0;
+            s2tmodel.copy_external_memory_to_cxt(cg, nutt, external_state);
+        }
+
         void serialise_cxt(ComputationGraph& cg)
         {
             s2tmodel.serialise_context(cg);
+        }
+
+        void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
+        {
+            s2tmodel.serialise_cxt_to_external_memory(cg, ext_memory);
         }
 
         void reset()
@@ -406,6 +418,9 @@ namespace cnn {
 		using DialogueProcessInfo<DBuilder>::nbr_turns;		
 		using DialogueProcessInfo<DBuilder>::s2txent;		
 		using DialogueProcessInfo<DBuilder>::s2tmodel;		
+        using DialogueProcessInfo<DBuilder>::serialise_cxt;
+        using DialogueProcessInfo<DBuilder>::assign_cxt;
+
     public:
         explicit MultiSourceDialogue(cnn::Model& model,
             const vector<unsigned int>& layers,
