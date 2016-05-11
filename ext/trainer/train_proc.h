@@ -1888,7 +1888,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
 
     TFIDFMetric tfidfScore(mv_idf, sd.size());
 
-    PTurn prv_turn, prv_turn_copy;
+    PTurn prv_turn;
 
     if (verbose)
         cout << "start segmental_forward_backward" << endl;
@@ -1902,15 +1902,25 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
         auto turn_back = turn;
 
         /// assign context
-        for (int u = 0; u < nutt; u++)
-        {
-            prv_turn_copy[u].first.insert(prv_turn_copy[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+        if (prv_turn.size() == 0)
+            prv_turn= turn;
+        else{
+            for (int u = 0; u < nutt; u++)
+            {
+                prv_turn[u].first.insert(prv_turn[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+            }
         }
 
+        /// all candidates have the same context
+        vector<vector<cnn::real>> reftfidf_context; 
+        for (int u = 0; u < nutt; u++)
+        {
+            vector<cnn::real> reftfidf = tfidfScore.GetStats(prv_turn[u].first);
+            reftfidf_context.push_back(reftfidf);
+        }
+        
         for (int i = 0; i < num_candidate + 1; i++)
         {
-            prv_turn = prv_turn_copy;
-
             if (i < num_candidate)
             {
                 for (size_t ii = 0; ii < nutt; ii++)
@@ -1924,10 +1934,9 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
 
             for (int u = 0; u < nutt; u++)
             {
-                vector<cnn::real> reftfidf = tfidfScore.GetStats(prv_turn[u].first);
                 vector<cnn::real> hyptfidf = tfidfScore.GetStats(turn[u].second);
                 /// compute cosine similarity
-                cnn::real sim = cnn::metric::cosine_similarity(reftfidf, hyptfidf);
+                cnn::real sim = cnn::metric::cosine_similarity(reftfidf_context[u], hyptfidf);
                 cnn::real score = -sim; /// negative of similarity is cost
 
                 costs[u].push_back(score);
@@ -1953,7 +1962,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
         /// append this turn to context
         for (int i = 0; i < nutt; i++)
         {
-            prv_turn_copy[i].first.insert(prv_turn_copy[i].first.end(), turn[i].second.begin(), turn[i].second.end());
+            prv_turn[i].first.insert(prv_turn[i].first.end(), turn[i].second.begin(), turn[i].second.end());
         }
         turn_id++;
         i_turns++;
