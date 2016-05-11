@@ -1824,9 +1824,13 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             {
                 Tensor tv = cg.get_value(v_errs[err_idx]);
                 cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
-                cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second;
-
-                costs[err_idx].push_back((1 - weight_IDF) * lc - weight_IDF * idf_score);
+#ifdef RANKING_COMBINE_IDF
+                cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
+                cnn::real score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
+#else
+                cnn::real score = lc;
+#endif
+                costs[err_idx].push_back(score);
             }
 
             if (i == num_candidate)

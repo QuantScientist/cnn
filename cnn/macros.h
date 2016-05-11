@@ -53,6 +53,9 @@ typedef float real;
 /// other parameters will be stored on CPU or GPU depending on the build
 //#define USE_CPU_FOR_LOOKUP_PARAM
 
+/// this is defined if using IDF value as part of cost to rank candidates
+#define RANKING_COMBINE_IDF
+
 /// if GPU memory is small, function and gradient cannot have large allocated space
 /// the solution is use both USE_CPU_FOR_LOOKUP_PARAM and also turn on the following SMALL_GPU
 /// #define SMALL_GPU
