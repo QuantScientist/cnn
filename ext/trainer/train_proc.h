@@ -63,6 +63,7 @@ extern unsigned VOCAB_SIZE_TGT;
 extern long nparallel;
 extern long mbsize;
 extern size_t g_train_on_turns;
+extern cnn::real weight_IDF;
 
 extern cnn::Dict sd;
 extern cnn::Dict td;
@@ -1769,6 +1770,8 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     vector<Expression> v_errs;
     vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
 
+    IDFMetric idfScore(mv_idf);
+
     PTurn prv_turn;
 
     if (verbose)
@@ -1820,7 +1823,10 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx ++)
             {
                 Tensor tv = cg.get_value(v_errs[err_idx]);
-                costs[err_idx].push_back(TensorTools::AccessElement(tv,0)/turn[err_idx].second.size());
+                cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
+                cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second;
+
+                costs[err_idx].push_back((1 - weight_IDF) * lc - weight_IDF * idf_score);
             }
 
             if (i == num_candidate)
