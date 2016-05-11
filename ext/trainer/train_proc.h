@@ -406,8 +406,8 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
 
 
 
-    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES+1) << " R@1 " << hits_top_1 / lines *100.0 <<"%." << ' ';
-    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / lines *100.0 << "%." << ' ';
+    cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+    of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
 
     of.close();
 }
@@ -1783,18 +1783,19 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     size_t idx = 0;
     for (auto turn : v_v_dialogues)
     {
-        bool true_response = true;
-        for (int i = 0; i < num_candidate; i++)
+        auto turn_back = turn;
+
+        for (int i = 0; i < num_candidate + 1; i++)
         {
-            if (true_response)
+            if (i < num_candidate)
             {
-                i--;
-                true_response = false;
+                for (size_t ii = 0; ii < nutt; ii++)
+                    turn[ii].second = csls[idx][i];
             }
             else
             {
                 for (size_t ii = 0; ii < nutt; ii++)
-                    turn[ii].second = csls[idx][i];
+                    turn[ii].second = turn_back[ii].second; 
             }
             
             ComputationGraph cg;
@@ -1822,7 +1823,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
                 costs[err_idx].push_back(TensorTools::AccessElement(tv,0));
             }
 
-            if (i == -1)
+            if (i == num_candidate)
             {
                 /// this is the context with the correct responses history
                 am.serialise_cxt_to_external_memory(cg, correct_response_state);
@@ -1835,12 +1836,12 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
         {
             cnn::real true_cost = costs[i][0];
             vector<size_t> sorted_idx = sort_indexes<cnn::real>(costs[i]);
-            vector<size_t>::iterator iter = find(sorted_idx.begin(), sorted_idx.end(), 0);
-            if (distance(sorted_idx.begin(), iter) == 0)
+            vector<size_t>::iterator iter = find(sorted_idx.begin(), sorted_idx.end(), num_candidate);
+            if (distance(iter, sorted_idx.end()) == 1)
             {
                 hits_top_1++;
             }
-            if (distance(sorted_idx.begin(), iter) < 5)
+            if (distance(iter, sorted_idx.end()) <= 5)
             {
                 hits_top_5++;
             }
