@@ -65,7 +65,7 @@ typedef float real;
 #define MAX_NUMBER_OF_HYPOTHESIS 200
 
 /// for ranker 
-#define MAX_NUMBER_OF_CANDIDATES 49
+#define MAX_NUMBER_OF_CANDIDATES 9
 
 /// for random number generation
 /// use curand to generate random numbers
