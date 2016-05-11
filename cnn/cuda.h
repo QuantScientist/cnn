@@ -51,7 +51,7 @@ the following commented out for windows. need to figure out support for both win
 }
 
 void Free_GPU();
-void Initialize_GPU(int& argc, char**& argv, unsigned random_seed);
+void Initialize_GPU(int& argc, char**& argv, unsigned random_seed, int device_id);
 
 #define CHECK_CUDNN(status) if (status != CUDNN_STATUS_SUCCESS) { cuda_exception("status = " + status); }
 #define CHECK_CURND(status) if (status != CURAND_STATUS_SUCCESS) { cuda_exception("status = " + status); }

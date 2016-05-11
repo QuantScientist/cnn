@@ -44,18 +44,10 @@ namespace cnn {
         return std::find(begin, end, option) != end;
     }
 
-    void Initialize(int& argc, char**& argv, unsigned random_seed, bool demo) {
+    void Initialize(int& argc, char**& argv, int init_device_id, unsigned random_seed, bool demo) 
+    {
+
         cerr << "Initializing...\n";
-#if HAVE_CUDA
-        Initialize_GPU(argc, argv, random_seed);
-#else
-        kSCALAR_MINUSONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
-        *kSCALAR_MINUSONE = -1;
-        kSCALAR_ONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
-        *kSCALAR_ONE = 1;
-        kSCALAR_ZERO = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
-        *kSCALAR_ZERO = 0;
-#endif
 
         if (random_seed == 0)
         {
@@ -70,6 +62,18 @@ namespace cnn {
                 random_seed = rd();
             }
         }
+
+#if HAVE_CUDA
+        Initialize_GPU(argc, argv, random_seed, init_device_id);
+#else
+        kSCALAR_MINUSONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
+        *kSCALAR_MINUSONE = -1;
+        kSCALAR_ONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
+        *kSCALAR_ONE = 1;
+        kSCALAR_ZERO = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
+        *kSCALAR_ZERO = 0;
+#endif
+
         rndeng = new mt19937(random_seed);
 
         cerr << "Allocating memory...\n";
