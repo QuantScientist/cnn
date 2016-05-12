@@ -70,7 +70,6 @@ void Initialize_GPU(int& argc, char**& argv, unsigned random_seed, int prefered_
   else{
       /// only use a particular GPU
       i = prefered_device_id;
-      nDevices = 1;
   }
   for (; i < nDevices; i++) {
     cudaDeviceProp prop;
@@ -88,6 +87,8 @@ void Initialize_GPU(int& argc, char**& argv, unsigned random_seed, int prefered_
         max_free = free_bytes;
         selected = i;
     }
+    if (prefered_device_id >= 0)
+        break;
   }
   cerr << "[cnn] **USING DEVICE: " << selected << endl;
   CUDA_CHECK(cudaSetDevice(selected));
