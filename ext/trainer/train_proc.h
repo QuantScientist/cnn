@@ -366,6 +366,8 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
     unsigned hits_top_1 = 0;
     unsigned hits_top_5 = 0;
 
+    map<int, tuple<int, int, int>> acc_over_turn;
+
     ofstream of(out_file);
 
     Timer iteration("completed in");
@@ -397,6 +399,15 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
         hits_top_1 += this_hit.first;
         hits_top_5 += this_hit.second;
 
+        if (acc_over_turn.find(vd_dialogues.size()) == acc_over_turn.end())
+        {
+            acc_over_turn[vd_dialogues.size()] = make_tuple(0, 0, 0);
+        }
+        get<0>(acc_over_turn[vd_dialogues.size()]) += this_hit.first;
+        get<1>(acc_over_turn[vd_dialogues.size()]) += this_hit.second;
+        get<2>(acc_over_turn[vd_dialogues.size()]) += ndutt * vd_dialogues.size();
+        
+
         id_sel_idx = get_same_length_dialogues(devel, NBR_DEV_PARALLEL_UTTS, id_stt_diag_id, vd_selected, vd_dialogues, test_corpusinfo);
         ndutt = id_sel_idx.size();
         lines += ndutt * vd_dialogues.size();
@@ -413,7 +424,14 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
     }
 
 
+    for (auto iter = acc_over_turn.begin(); iter != acc_over_turn.end(); iter++)
+    {
+        auto key = iter->first;
+        auto t = iter->second;
 
+        cerr << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100<< "%." << endl;
+        of << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100<< "%." << endl;
+    }
     cerr << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
     of << "\n***Test [lines =" << lines << " out of total " << devel.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
 
@@ -1926,7 +1944,10 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
 
     IDFMetric idfScore(mv_idf);
 
+    TFIDFMetric tfidfScore(mv_idf, sd.size());
+
     PTurn prv_turn;
+    PTurn prv_turn_tfidf;
 
     if (verbose)
         cout << "start segmental_forward_backward" << endl;
@@ -1942,6 +1963,23 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     {
         auto turn_back = turn;
         vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
+
+        /// assign context
+        if (prv_turn_tfidf.size() == 0)
+            prv_turn_tfidf = turn;
+        else{
+            for (int u = 0; u < nutt; u++)
+            {
+                prv_turn_tfidf[u].first.insert(prv_turn_tfidf[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+            }
+        }
+
+        vector<vector<cnn::real>> reftfidf_context;
+        for (int u = 0; u < nutt; u++)
+        {
+            vector<cnn::real> reftfidf = tfidfScore.GetStats(prv_turn_tfidf[u].first);
+            reftfidf_context.push_back(reftfidf);
+        }
 
         for (int i = 0; i < num_candidate + 1; i++)
         {
@@ -1964,6 +2002,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
 
             if (turn_id == 0)
             {
+                am.copy_external_memory_to_cxt(cg, nutt, prv_turn_correct_response_state);
                 v_errs = am.build_graph(turn, cg);
             }
             else
@@ -1979,11 +2018,17 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             {
                 Tensor tv = cg.get_value(v_errs[err_idx]);
                 cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
+                cnn::real score = lc;
+#ifdef RANKING_COMBINE_TFIDF
+                vector<cnn::real> hyptfidf = tfidfScore.GetStats(turn[err_idx].second);
+                /// compute cosine similarity
+                cnn::real sim = cnn::metric::cosine_similarity(reftfidf_context[err_idx], hyptfidf);
+                score = (1 - weight_IDF) * lc - weight_IDF * sim;
+#endif
+
 #ifdef RANKING_COMBINE_IDF
                 cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
-                cnn::real score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
-#else
-                cnn::real score = lc;
+                score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
 #endif
                 costs[err_idx].push_back(score);
             }
@@ -1992,6 +2037,9 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             {
                 /// this is the context with the correct responses history
                 am.serialise_cxt_to_external_memory(cg, correct_response_state);
+                for (size_t k = 0; k < correct_response_state.size(); k++)
+                for (size_t i = 0; i < correct_response_state[k].size(); i++)
+                    correct_response_state[k][i] = 0;
             }
         }
 

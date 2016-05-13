@@ -54,7 +54,7 @@ typedef float real;
 //#define USE_CPU_FOR_LOOKUP_PARAM
 
 /// this is defined if using IDF value as part of cost to rank candidates
-#define RANKING_COMBINE_IDF
+//#define RANKING_COMBINE_IDF
 
 /// if GPU memory is small, function and gradient cannot have large allocated space
 /// the solution is use both USE_CPU_FOR_LOOKUP_PARAM and also turn on the following SMALL_GPU
@@ -77,5 +77,7 @@ typedef float real;
 /// for decoding, the number of sentences to be evaluated
 #define NBR_DEV_PARALLEL_UTTS 5
 
+/// for ranking candidate responses, whether combine tfidf.
+#define RANKING_COMBINE_TFIDF
 
 };
