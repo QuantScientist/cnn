@@ -513,13 +513,6 @@ public:
         return target;
     }
 
-    std::vector<int> decode_tuple(const SentenceTuple&source, ComputationGraph& cg, cnn::Dict  &sdict, cnn::Dict  &tdict)
-    {
-        vector<int> vres;
-        throw("not implemented");
-        return vres;
-    };
-
  public:
      /// run in batch with multiple sentences
      /// source [utt][data stream] is utterance first and then its content
@@ -588,8 +581,8 @@ public:
              v_decoder.back()->start_new_sequence(i_h0);
      };
 
-     void start_new_instance(const std::vector<std::vector<int>> &source,
-         const std::vector<std::vector<int>> &prv_response,
+     void start_new_instance(const std::vector<std::vector<int>> &prv_response,
+         const std::vector<std::vector<int>> &source,
          ComputationGraph &cg)
      {}
 
