@@ -93,12 +93,6 @@ namespace cnn {
         // only has one pair of sentence so far
         virtual vector<Expression> build_graph(const Dialogue& prv_sentence, const Dialogue& cur_sentence, ComputationGraph& cg) = 0;
 
-        // return Expression of total loss
-        // only has one pair of sentence so far
-        virtual Expression build_graph(const TupleDialogue& cur_sentence, ComputationGraph& cg) = 0; 
-
-        virtual Expression build_graph(const TupleDialogue& prv_sentence, const TupleDialogue& cur_sentence, ComputationGraph& cg) = 0;
-
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
         {
             s2tmodel.reset();  /// reset network
@@ -129,17 +123,6 @@ namespace cnn {
             s2tmodel.assign_cxt(cg, cur_sentence.size());
             vector<Sentence> iret = s2tmodel.batch_decode(prv_sentence, cur_sentence, cg, tdict);
             return iret;
-        }
-
-        std::vector<int> decode_tuple(const SentenceTuple &source, ComputationGraph& cg, cnn::Dict  &sdict, cnn::Dict  &tdict)
-        {
-            s2tmodel.reset();  /// reset network
-            return s2tmodel.decode_tuple(source, cg, sdict, tdict);
-        }
-
-        std::vector<int> decode_tuple(const SentenceTuple &source, const SentenceTuple &cursource, ComputationGraph& cg, cnn::Dict  &sdict, cnn::Dict  &tdict)
-        {
-            return s2tmodel.decode_tuple(cursource, cg, sdict, tdict);
         }
 
         void assign_cxt(ComputationGraph& cg, size_t nutt)
@@ -517,19 +500,6 @@ namespace cnn {
             return s2terr;
         }
 
-        Expression build_graph(const TupleDialogue & cur_sentence, ComputationGraph& cg) override
-        {
-            Expression v;
-            return v;
-        }
-
-        /// for all speakers with history
-        Expression build_graph(const TupleDialogue & prv_sentence, const TupleDialogue & cur_sentence, ComputationGraph& cg)
-        {
-            Expression v;
-            return v;
-        }
-
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
         {
             s2tmodel.reset();  /// reset network
@@ -656,19 +626,6 @@ namespace cnn {
             assert(twords == s2tmodel.tgt_words);
 
             return s2terr;
-        }
-
-        Expression build_graph(const TupleDialogue & cur_sentence, ComputationGraph& cg) override
-        {
-            Expression v;
-            return v;
-        }
-
-        /// for all speakers with history
-        Expression build_graph(const TupleDialogue & prv_sentence, const TupleDialogue & cur_sentence, ComputationGraph& cg)
-        {
-            Expression v;
-            return v;
         }
 
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
