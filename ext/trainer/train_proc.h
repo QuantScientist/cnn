@@ -218,6 +218,7 @@ public:
     void nosegmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt,
         TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr);
     void segmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
+//    void segmental_forward_backward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
@@ -1766,6 +1767,154 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
 /**
 return hit at rank0 (top-1) and hit within rank4 (top-5)
 */
+/*template <class AM_t>
+void TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+{
+    size_t turn_id = 0;
+    size_t i_turns = 0;
+    unsigned hits_top_5 = 0, hits_top_1 = 0;
+    size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
+    vector<Expression> v_errs;
+
+    IDFMetric idfScore(mv_idf);
+
+    PTurn prv_turn;
+
+    if (verbose)
+        cout << "start segmental_forward_backward" << endl;
+
+    /// the negative candidate number should match to that expected
+    assert(MAX_NUMBER_OF_CANDIDATES == csls[0].size());
+
+    vector<vector<cnn::real>> correct_response_state;
+    vector<vector<cnn::real>> prv_turn_correct_response_state;
+
+    size_t idx = 0;
+    for (auto turn : v_v_dialogues)
+    {
+        auto turn_back = turn;
+        vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
+        vector<vector<cnn::real>> correct_response_costs(nutt, vector<cnn::real>(0));
+
+        for (int i = 0; i < num_candidate + 1; i++)
+        {
+            /// first compute correct responses likelihood
+            {
+                ComputationGraph cg;
+                if (turn_id == 0)
+                {
+                    v_errs = am.build_graph(turn, cg);
+                }
+                else
+                {
+                    v_errs = am.build_graph(prv_turn, turn, cg);
+                }
+
+                for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx++)
+                {
+                    Tensor tv = cg.get_value(v_errs[err_idx]);
+                    cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
+#ifdef RANKING_COMBINE_IDF
+                    cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
+                    cnn::real score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
+#else
+                    cnn::real score = lc;
+#endif
+                    correct_response_costs[err_idx].push_back(score);
+                }
+            }
+
+            if (i < num_candidate)
+            {
+                for (size_t ii = 0; ii < nutt; ii++)
+                    turn[ii].second = csls[idx][i];
+            }
+            else
+            {
+                for (size_t ii = 0; ii < nutt; ii++)
+                    turn[ii].second = turn_back[ii].second;
+            }
+
+            ComputationGraph cg;
+            if (resetmodel)
+            {
+                am.reset();
+            }
+
+            if (turn_id == 0)
+            {
+                v_errs = am.build_graph(turn, cg);
+            }
+            else
+            {
+                am.copy_external_memory_to_cxt(cg, nutt, prv_turn_correct_response_state);  /// reset state to that coresponding to the correct response history for negative responses
+                /// because this turn is dependent on the previous turn that is with the correct response
+
+                v_errs = am.build_graph(prv_turn, turn, cg);
+            }
+
+            if (verbose) cout << "after graph build" << endl;
+            for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx++)
+            {
+                Tensor tv = cg.get_value(v_errs[err_idx]);
+                cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
+#ifdef RANKING_COMBINE_IDF
+                cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
+                cnn::real score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
+#else
+                cnn::real score = lc;
+#endif
+                costs[err_idx].push_back(score);
+            }
+
+            if (sgd != nullptr)
+            {
+                if (verbose)
+                    cout << " start backprop " << endl;
+                cg.backward();
+                if (verbose)
+                    cout << " done backprop " << endl;
+                sgd->update(am.twords);
+                if (verbose)
+                    cout << " done update" << endl;
+            }
+
+            if (i == num_candidate)
+            {
+                /// this is the context with the correct responses history
+                am.serialise_cxt_to_external_memory(cg, correct_response_state);
+            }
+        }
+
+        prv_turn_correct_response_state = correct_response_state;
+
+        for (size_t i = 0; i < costs.size(); i++)
+        {
+            vector<size_t> sorted_idx = sort_indexes<cnn::real>(costs[i]);
+            vector<size_t>::iterator iter = find(sorted_idx.begin(), sorted_idx.end(), num_candidate);
+            if (distance(iter, sorted_idx.end()) == 1)
+            {
+                hits_top_1++;
+            }
+            if (distance(iter, sorted_idx.end()) <= 5)
+            {
+                hits_top_5++;
+            }
+
+        }
+
+        prv_turn = turn;
+        turn_id++;
+        i_turns++;
+        idx++;
+    }
+
+    return make_pair(hits_top_1, hits_top_5);
+}
+*/
+/**
+return hit at rank0 (top-1) and hit within rank4 (top-5)
+*/
 template <class AM_t>
 pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
@@ -1850,7 +1999,6 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
 
         for (size_t i = 0; i < costs.size(); i++)
         {
-            cnn::real true_cost = costs[i][0];
             vector<size_t> sorted_idx = sort_indexes<cnn::real>(costs[i]);
             vector<size_t>::iterator iter = find(sorted_idx.begin(), sorted_idx.end(), num_candidate);
             if (distance(iter, sorted_idx.end()) == 1)
