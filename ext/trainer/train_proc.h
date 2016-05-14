@@ -172,7 +172,8 @@ public:
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
         bool bcharlevel, bool nosplitdialogue);
 
-    void batch_train_ranking(Model &model, Proc &am, size_t max_epochs, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel);
+    void batch_train_ranking(Model &model, Proc &am, size_t max_epochs, Corpus &train_corpus, string model_out_fn, 
+		string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel);
 
     /// adaptation using a small adaptation
     void online_adaptation(Model &model, Proc &am,
@@ -2156,29 +2157,48 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
 
             if (sgd != nullptr)
             {
-                if (verbose)
-                    cout << " start backprop " << endl;
-                cg.backward();
-                if (verbose)
-                    cout << " done backprop " << endl;
-
                 /// compute average cost differences
                 cnn::real cost_penalty = 0;
+				int ndif = 0;
                 for (size_t kk = 0; kk < v_errs.size(); kk++)
                 {
                     cnn::real dif = correct_response_costs[kk].back() - costs[kk].back();
-                    if (dif > 0)
-                        cost_penalty += dif;
+					if (dif > 0)
+					{
+						ndif++;
+						cost_penalty += dif;
+					}
                 }
 
-                cout << "cost penalty " << cost_penalty << endl;
-                if (i < num_candidate && cost_penalty > 0)
-                    sgd->update(am.twords, -cost_penalty);  /// penalty for negative samples
-                else
-                    sgd->update(am.twords, 1.0);   /// encourage positive samples
+				if (i < num_candidate && cost_penalty > 0 || i == num_candidate)
+				{
+					if (verbose)
+						cout << " start backprop " << endl;
+					cg.backward();
+					if (verbose)
+						cout << " done backprop " << endl;
 
-                if (verbose)
-                    cout << " done update" << endl;
+					cnn::real reward = 0.0;
+					if (cost_penalty > 0 && i != num_candidate)
+					{
+						reward = -cost_penalty / ndif;
+					}
+					else
+					{
+						assert(i == num_candidate);
+						reward = 1.0; /// this is the case of positive sample
+					}
+					if (verbose) 
+						cout << "update model using reward " << cost_penalty << endl;
+					sgd->update(am.twords, reward);  /// reinforce learning
+
+					if (verbose)
+						cout << " done update" << endl;
+				}
+				else{
+					if (verbose)
+						cout << "no need to update models" << endl;
+				}
             }
 
             if (i == num_candidate)
@@ -2865,8 +2885,14 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 train ranking models
 */
 template <class AM_t>
-void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_epochs, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel)
+void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_epochs, Corpus &train_corpus, string model_out_fn, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel)
 {
+	if (train_corpus.size() == 0)
+	{
+		cerr << "no data for training" << endl;
+		return;
+	}
+
     unsigned lines = 0;
     unsigned hits_top_1 = 0;
     unsigned hits_top_5 = 0;
@@ -2874,7 +2900,7 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
     map<int, tuple<int, int, int>> acc_over_turn;
 
     ofstream of(out_file);
-
+	int ilines_check_point = 0; 
     Timer iteration("completed in");
 
     dev_set_scores->reset();
@@ -2896,6 +2922,10 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
     int train_epoch = 0;
     while (train_epoch < max_epochs)
     {
+		hits_top_1 = 0;
+		hits_top_5 = 0;
+		acc_over_turn.clear();
+
         while (ndutt > 0)
         {
             pair<unsigned, unsigned> this_hit;
@@ -2926,6 +2956,14 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
                     cerr << p << " ";
                 cerr << endl;
             }
+
+			ilines_check_point += lines;
+			if (ilines_check_point > 50000)
+			{
+				save_cnn_model(model_out_fn + ".e" + boost::lexical_cast<string>(train_epoch) + ".ln" + boost::lexical_cast<string>(lines), &model);
+				ilines_check_point = 0; 
+			}
+
         }
 
 
@@ -2942,6 +2980,8 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
 
         sgd->update_epoch();
 
+		save_cnn_model(model_out_fn, &model);
+
         cerr << "**SHUFFLE\n";
         shuffle(training_numturn2did.vNumTurns.begin(), training_numturn2did.vNumTurns.end(), *rndeng);
 
@@ -2953,6 +2993,9 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
         }
 
         vd_selected.assign(train_corpus.size(), false);
+
+		train_epoch++;
+		lines = 0;
     }
 
     of.close();
