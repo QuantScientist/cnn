@@ -341,6 +341,10 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         training.clear();
         ptrTrainer->split_data_batch_train(vm["train"].as<string>(), model, hred, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), vm["epochsize"].as<int>(), vm["segmental_training"].as<bool>(), vm["do_gradient_check"].as<bool>(), vm["padding"].as<bool>(), vm["withadditionalfeature"].as<bool>());
     }
+    else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && training.size() > 0 && vm["ranker"].as<bool>())
+    {
+        ptrTrainer->batch_train_ranking(model, hred, vm["epochs"].as<int>(), training, fname, sd, training_numturn2did, sgd, vm["nparallel"].as<int>());
+    }
     else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && training.size() > 0)
     {
         ptrTrainer->batch_train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), largest_dev_cost, vm["segmental_training"].as<bool>(), true, vm["do_gradient_check"].as<bool>(), true, vm["padding"].as<bool>(), kSRC_EOS, vm["withadditionalfeature"].as<bool>());
