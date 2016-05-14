@@ -500,6 +500,20 @@ namespace cnn {
             return s2terr;
         }
 
+        vector<Expression> build_graph(const Dialogue& cur_sentence,
+            const vector<vector<cnn::real>>& additional_feature,
+            ComputationGraph& cg)
+        {
+            return vector<Expression>();
+        }
+
+        vector<Expression> build_graph(const Dialogue& prv_sentence, const Dialogue& cur_sentence,
+            const vector<vector<cnn::real>>& additional_feature,
+            ComputationGraph& cg) 
+        {
+            return vector<Expression>(); 
+        }
+
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
         {
             s2tmodel.reset();  /// reset network
@@ -522,6 +536,31 @@ namespace cnn {
         {
             s2tmodel.assign_cxt(cg, 1);
             return s2tmodel.beam_decode(source, cur, cg, beam_search_decode, tdict);
+        }
+
+        virtual std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const std::vector<cnn::real>&, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            return std::vector<int>(); 
+        }
+
+        virtual std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const std::vector<int>& cur, 
+            const std::vector<cnn::real>&, 
+            ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        virtual std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const std::vector<cnn::real>&,
+            ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        virtual std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const std::vector<int>& cur, 
+            const std::vector<cnn::real>&, 
+            ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
         }
 
         priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> get_beam_decode_complete_list()
