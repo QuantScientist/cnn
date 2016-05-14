@@ -306,12 +306,22 @@ public:
         }
         
         vector<cnn::real> v_tfidf(dim_size, 0.0);
+        cnn::real sum_denom = 0.0;
         for (unordered_map<int, cnn::real>::iterator ptr = tf_hyp.begin();
             ptr != tf_hyp.end();
             ptr++)
         {
-            v_tfidf[ptr->first] = ptr->second * mv_idfs[ptr->first]; /// get tf-idf
+            v_tfidf[ptr->first] = (1+ log( ptr->second)) * mv_idfs[ptr->first]; /// get tf-idf
+            sum_denom += v_tfidf[ptr->first];
 		}
+        
+        for (unordered_map<int, cnn::real>::iterator ptr = tf_hyp.begin();
+            ptr != tf_hyp.end();
+            ptr++)
+        {
+            v_tfidf[ptr->first] /= sum_denom; /// get tf-idf
+		}
+
 
         return v_tfidf;
     }
