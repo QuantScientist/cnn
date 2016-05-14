@@ -336,14 +336,23 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
                 largest_cost, reward_baseline, threshold_prob, vm["do_gradient_check"].as<bool>());
         }
     }
-    else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0)
+	else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0 && vm["ranker"].as<bool>())
+	{
+		if (training.size() == 0)
+		{
+			cerr << "Reading training data from " << vm["train"].as<string>() << "...\n";
+			training = read_corpus(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["mbsize"].as<int>(), false,
+				vm.count("charlevel") > 0);
+			sd.Freeze(); // no new word types allowed
+
+			training_numturn2did = get_numturn2dialid(training);
+		}
+		ptrTrainer->batch_train_ranking(model, hred, vm["epochs"].as<int>(), training, fname, vm["outputfile"].as<string>(), sd, training_numturn2did, sgd, vm["nparallel"].as<int>());
+	}
+	else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0)
     {   // split data into nparts and train
         training.clear();
         ptrTrainer->split_data_batch_train(vm["train"].as<string>(), model, hred, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), vm["epochsize"].as<int>(), vm["segmental_training"].as<bool>(), vm["do_gradient_check"].as<bool>(), vm["padding"].as<bool>(), vm["withadditionalfeature"].as<bool>());
-    }
-    else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && training.size() > 0 && vm["ranker"].as<bool>())
-    {
-        ptrTrainer->batch_train_ranking(model, hred, vm["epochs"].as<int>(), training, fname, sd, training_numturn2did, sgd, vm["nparallel"].as<int>());
     }
     else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && training.size() > 0)
     {
