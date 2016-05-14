@@ -1916,6 +1916,11 @@ public:
         serialise_cxt_to_external_memory(cg, combiner, ext_memory);
     }
 
+    std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const vector<cnn::real>& additional_feature, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        return vector<int>();
+    }
+
     std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");
@@ -1967,6 +1972,11 @@ public:
         return target;
     }
 
+    std::vector<int> decode_with_additional_feature(const std::vector<int> &prv_response, const std::vector<int> &source, const vector<cnn::real>&, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        return vector<int>();
+    }
+    
     std::vector<int> decode(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");
@@ -2017,6 +2027,11 @@ public:
         return target;
     }
 
+    std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const vector<cnn::real>&, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        return vector<int>();
+    }
+    
     virtual std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
     {
 
@@ -2122,6 +2137,11 @@ public:
         return best;
     }
 
+    std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &prv_response, const std::vector<int> &source, const vector<cnn::real>&, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        return vector<int>();
+    }
+    
     virtual std::vector<int> beam_decode(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
     {
         //assert(!giza_extensions);
