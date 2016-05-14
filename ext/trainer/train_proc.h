@@ -143,15 +143,21 @@ private:
     TrainingScores* training_set_scores;
     TrainingScores* dev_set_scores;
 
+    TFIDFMetric * ptr_tfidfScore;;
+
 public:
     TrainProcess() {
         training_set_scores = new TrainingScores(MAX_NBR_TRUNS);
         dev_set_scores = new TrainingScores(MAX_NBR_TRUNS);
+        ptr_tfidfScore = nullptr;
     }
     ~TrainProcess()
     {
         delete training_set_scores;
         delete dev_set_scores;
+
+        if (ptr_tfidfScore)
+            delete ptr_tfidfScore;
     }
 
     void prt_model_info(size_t LAYERS, size_t VOCAB_SIZE_SRC, const vector<unsigned>& dims, size_t nreplicate, size_t decoder_additiona_input_to, size_t mem_slots, cnn::real scale);
@@ -159,7 +165,8 @@ public:
     void batch_train(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, int max_epochs, int nparallel, cnn::real& largest_cost, bool do_segmental_training, bool update_sgd,
         bool doGradientCheck, bool b_inside_logic,
-        bool do_padding, int kEOS  /// do padding. if so, use kEOS as the padding symbol
+        bool do_padding, int kEOS,  /// do padding. if so, use kEOS as the padding symbol
+        bool b_use_additional_feature
         );
     void supervised_pretrain(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
@@ -177,7 +184,7 @@ public:
         Trainer &sgd, string out_file, int max_epochs,
         bool bcharlevel, bool nosplitdialogue);
     void train(Model &model, Proc &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs);
-    void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding);
+    void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding, bool b_use_additional_feature);
 
 
     void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
@@ -206,6 +213,7 @@ public:
     */
     cnn::real testPPL(Model &model, Proc &am, Corpus &devel, NumTurn2DialogId& info, string out_file, bool segmental_training, cnn::real& words_s, cnn::real& words_t);
     void test(Model &model, Proc &am, Corpus &devel, string out_file, Dict & td, NumTurn2DialogId& test_corpusinfo, bool segmental_training, const string& score_embedding_fn = "");
+    void test_with_additional_feature(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test_segmental(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test(Model &model, Proc &am, TupleCorpus &devel, string out_file, Dict & sd, Dict & td);
@@ -219,6 +227,7 @@ public:
         TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr);
     void segmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
 //    void segmental_forward_backward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
+    void segmental_forward_backward_with_additional_feature(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
         bool update_model = true);
@@ -650,7 +659,183 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
     of.close();
 }
 
-/** 
+template <class AM_t>
+void TrainProcess<AM_t>::test_with_additional_feature(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
+{
+    BleuMetric bleuScore;
+    bleuScore.Initialize();
+
+    /*cnn::real idf_weight = 0.1;
+    cnn::real edist_weight = 0.1;*/
+    IDFMetric idfScore(mv_idf);
+
+    EditDistanceMetric editDistScoreHyp;
+    EditDistanceMetric editDistScoreRef;
+
+    ofstream of(out_file);
+
+    Timer iteration("completed in");
+
+    for (auto diag : devel){
+
+        SentencePair prv_turn;
+        SentencePair prv_turn_tfidf;
+        size_t turn_id = 0;
+
+        /// train on two segments of a dialogue
+        vector<int> res;
+        vector<vector<int>> res_kbest;
+        vector<string> prv_response;
+        vector<string> prv_response_ref;
+        for (auto spair : diag)
+        {
+            ComputationGraph cg;
+
+            SentencePair turn = spair;
+            vector<string> sref, srec;
+
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
+
+            /// assign context
+            if (turn_id == 0)
+                prv_turn_tfidf = turn;
+            else{
+                prv_turn_tfidf.first.insert(prv_turn_tfidf.first.end(), turn.first.begin(), turn.first.end());
+            }
+
+            vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn_tfidf.first);
+            
+            if (turn_id == 0)
+            {
+                prv_turn_tfidf = turn;
+
+                if (beam_search_decode == -1)
+                    res = am.decode_with_additional_feature(turn.first, reftfidf,cg, sd);
+                else
+                    res = am.beam_decode_with_additional_feature(turn.first, reftfidf, cg, beam_search_decode, sd);
+            }
+            else
+            {
+                if (beam_search_decode == -1)
+                    res = am.decode_with_additional_feature(prv_turn.second, turn.first, reftfidf, cg, sd);
+                else
+                    res = am.beam_decode_with_additional_feature(prv_turn.second, turn.first, reftfidf, cg, beam_search_decode, sd);
+            }
+
+            if (turn.first.size() > 0)
+            {
+                cout << "source: ";
+                for (auto p : turn.first){
+                    cout << sd.Convert(p) << " ";
+                }
+                cout << endl;
+            }
+
+            if (turn.second.size() > 0)
+            {
+                cout << "ref response: ";
+                for (auto p : turn.second){
+                    cout << sd.Convert(p) << " ";
+                    sref.push_back(sd.Convert(p));
+                }
+                cout << endl;
+            }
+
+            if (rerankIDF > 0)
+            {
+                beam_search_results = am.get_beam_decode_complete_list();
+
+                /// averaged_log_likelihood , idf_score, bleu_score
+                /// the goal is to rerank using averaged_log_likelihood + weight * idf_score
+                /// so that the top is with the highest bleu score
+                vector<int> best_res;
+                cnn::real largest_score = -10000.0;
+                while (!beam_search_results.empty())
+                {
+                    vector<int> result = beam_search_results.top().target;
+                    cnn::real lk = beam_search_results.top().cost;
+                    cnn::real idf_score = idfScore.GetStats(turn.second, result).second;
+
+                    srec.clear();
+                    for (auto p : result){
+                        srec.push_back(sd.Convert(p));
+                    }
+
+                    cnn::real edist_score = editDistScoreHyp.GetStats(prv_response, srec);
+
+                    cnn::real rerank_score = (1 - weight_IDF) * lk + weight_IDF * idf_score;
+
+                    rerank_score = (1 - weight_edist) * rerank_score + weight_edist * edist_score;
+
+                    if (rerank_score > largest_score)
+                    {
+                        largest_score = rerank_score;
+                        best_res = result;
+                    }
+                    beam_search_results.pop();
+                }
+
+                if (best_res.size() > 0)
+                {
+                    srec.clear();
+                    cout << "res response: ";
+                    for (auto p : best_res){
+                        cout << sd.Convert(p) << " ";
+                        srec.push_back(sd.Convert(p));
+                    }
+                    cout << endl;
+                }
+
+                idfScore.AccumulateScore(turn.second, best_res);
+            }
+            else
+            {
+                if (res.size() > 0)
+                {
+                    cout << "res response: ";
+                    for (auto p : res){
+                        cout << sd.Convert(p) << " ";
+                        srec.push_back(sd.Convert(p));
+                    }
+                    cout << endl;
+                }
+
+                idfScore.AccumulateScore(turn.second, res);
+            }
+
+            bleuScore.AccumulateScore(sref, srec);
+
+
+            if (turn_id > 0){
+                editDistScoreHyp.AccumulateScore(prv_response, srec);
+                editDistScoreRef.AccumulateScore(prv_response_ref, sref);
+            }
+
+            turn_id++;
+            prv_turn = turn;
+            prv_turn_tfidf.first.insert(prv_turn_tfidf.first.end(), turn.second.begin(), turn.second.end());
+            prv_response = srec;
+            prv_response_ref = sref;
+        }
+    }
+
+    string sBleuScore = bleuScore.GetScore();
+    cout << "BLEU (4) score = " << sBleuScore << endl;
+    of << "BLEU (4) score = " << sBleuScore << endl;
+
+    pair<cnn::real, cnn::real> idf_score = idfScore.GetScore();
+    cout << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
+    of << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
+
+    cnn::real edit_distance_score_ref = editDistScoreRef.GetScore();
+    cnn::real edit_distance_score_hyp = editDistScoreHyp.GetScore();
+    cout << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+    of << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+
+    of.close();
+}
+
+/**
 using beam search, generated candidate lists
 each list has a tuple of scores
 averaged_log_likelihood , idf_score, bleu_score
@@ -1782,6 +1967,90 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
     }
 }
 
+template <class AM_t>
+void TrainProcess<AM_t>::segmental_forward_backward_with_additional_feature(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+{
+    size_t turn_id = 0;
+    size_t i_turns = 0;
+    PTurn prv_turn;
+    PTurn prv_turn_tfidf;
+
+    if (verbose)
+        cout << "start segmental_forward_backward" << endl;
+
+    for (auto turn : v_v_dialogues)
+    {
+        ComputationGraph cg;
+        if (resetmodel)
+        {
+            am.reset();
+        }
+
+        /// assign context
+        if (prv_turn_tfidf.size() == 0)
+            prv_turn_tfidf = turn;
+        else{
+            for (int u = 0; u < nutt; u++)
+            {
+                prv_turn_tfidf[u].first.insert(prv_turn_tfidf[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+            }
+        }
+
+        vector<vector<cnn::real>> reftfidf_context;
+        for (int u = 0; u < nutt; u++)
+        {
+            vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn_tfidf[u].first);
+            reftfidf_context.push_back(reftfidf);
+        }
+
+        if (turn_id == 0)
+        {
+            am.build_graph(turn, reftfidf_context, cg);
+        }
+        else
+        {
+            am.build_graph(prv_turn, turn, reftfidf_context, cg);
+        }
+
+        if (verbose) cout << "after graph build" << endl;
+
+        Tensor tv = cg.get_value(am.s2txent.i);
+        TensorTools::PushElementsToMemory(scores->training_score_current_location,
+            scores->training_score_buf_size,
+            scores->training_scores,
+            tv);
+
+        if (doGradientCheck
+            && turn_id > 3 // do gradient check after burn-in
+            )
+            CheckGrad(model, cg);
+
+        if (sgd != nullptr)
+        {
+            if (verbose)
+                cout << " start backprop " << endl;
+            cg.backward();
+            if (verbose)
+                cout << " done backprop " << endl;
+            sgd->update(am.twords);
+            if (verbose)
+                cout << " done update" << endl;
+        }
+
+        scores->swords += am.swords;
+        scores->twords += am.twords;
+
+        /// append this turn to context
+        for (int i = 0; i < nutt; i++)
+        {
+            prv_turn_tfidf[i].first.insert(prv_turn_tfidf[i].first.end(), turn[i].second.begin(), turn[i].second.end());
+        }
+        prv_turn = turn;
+        turn_id++;
+        i_turns++;
+    }
+}
+
 /**
 return hit at rank0 (top-1) and hit within rank4 (top-5)
 */
@@ -1944,8 +2213,6 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
 
     IDFMetric idfScore(mv_idf);
 
-    TFIDFMetric tfidfScore(mv_idf, sd.size());
-
     PTurn prv_turn;
     PTurn prv_turn_tfidf;
 
@@ -1977,7 +2244,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
         vector<vector<cnn::real>> reftfidf_context;
         for (int u = 0; u < nutt; u++)
         {
-            vector<cnn::real> reftfidf = tfidfScore.GetStats(prv_turn_tfidf[u].first);
+            vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn_tfidf[u].first);
             reftfidf_context.push_back(reftfidf);
         }
 
@@ -2020,7 +2287,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
                 cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
                 cnn::real score = lc;
 #ifdef RANKING_COMBINE_TFIDF
-                vector<cnn::real> hyptfidf = tfidfScore.GetStats(turn[err_idx].second);
+                vector<cnn::real> hyptfidf = ptr_tfidfScore->GetStats(turn[err_idx].second);
                 /// compute cosine similarity
                 cnn::real sim = cnn::metric::cosine_similarity(reftfidf_context[err_idx], hyptfidf);
                 score = (1 - weight_IDF) * lc - weight_IDF * sim;
@@ -2111,7 +2378,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
         vector<vector<cnn::real>> reftfidf_context; 
         for (int u = 0; u < nutt; u++)
         {
-            vector<cnn::real> reftfidf = tfidfScore.GetStats(prv_turn[u].first);
+            vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn[u].first);
             reftfidf_context.push_back(reftfidf);
         }
         
@@ -2130,7 +2397,7 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking_using_tfi
 
             for (int u = 0; u < nutt; u++)
             {
-                vector<cnn::real> hyptfidf = tfidfScore.GetStats(turn[u].second);
+                vector<cnn::real> hyptfidf = ptr_tfidfScore->GetStats(turn[u].second);
                 /// compute cosine similarity
                 cnn::real sim = cnn::metric::cosine_similarity(reftfidf_context[u], hyptfidf);
                 cnn::real score = -sim; /// negative of similarity is cost
@@ -2423,7 +2690,8 @@ template <class AM_t>
 void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, Corpus &devel,
     Trainer &sgd, string out_file, int max_epochs, int nparallel, cnn::real &best, bool segmental_training,
     bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic,
-    bool b_do_padding, int kEOS /// for padding if so use kEOS as the padding symbol
+    bool b_do_padding, int kEOS, /// for padding if so use kEOS as the padding symbol
+    bool b_use_additional_feature
     )
 {
     if (verbose)
@@ -2506,11 +2774,19 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
                 cerr << endl;
             }
 
-            if (segmental_training)
-                segmental_forward_backward(model, am, v_dialogues, nutt, training_set_scores, false, do_gradient_check, &sgd);
-            else
-                nosegmental_forward_backward(model, am, v_dialogues, nutt, training_set_scores, true, 0, &sgd);
 
+            if (b_use_additional_feature)
+            {
+                segmental_forward_backward_with_additional_feature(model, am, v_dialogues, nutt, training_set_scores, false, do_gradient_check, &sgd);
+            }
+            else
+            {
+                if (segmental_training)
+                    segmental_forward_backward(model, am, v_dialogues, nutt, training_set_scores, false, do_gradient_check, &sgd);
+                else
+                    nosegmental_forward_backward(model, am, v_dialogues, nutt, training_set_scores, true, 0, &sgd);
+            }
+ 
             si += nutt;
             lines += nutt;
             iter += nutt;
@@ -3115,7 +3391,7 @@ template <class AM_t>
 void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &model, AM_t &am, Corpus &devel,
     Trainer &sgd, string out_file,
     int max_epochs, int nparallel, int epochsize, bool segmental_training,
-    bool do_gradient_check, bool do_padding)
+    bool do_gradient_check, bool do_padding, bool b_use_additional_feature)
 {
     cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
     cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
@@ -3129,11 +3405,13 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     Corpus training = dr.corpus();
     training_numturn2did = get_numturn2dialid(training);
 
+    save_cnn_model(out_file, &model);
+
     while (sgd.epoch < max_epochs)
     {
         Timer this_epoch("this epoch completed in");
 
-        batch_train(model, am, training, devel, sgd, out_file, 1, nparallel, largest_cost, segmental_training, false, do_gradient_check, false, do_padding, kSRC_EOS);
+        batch_train(model, am, training, devel, sgd, out_file, 1, nparallel, largest_cost, segmental_training, false, do_gradient_check, false, do_padding, kSRC_EOS, b_use_additional_feature);
 
         dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
         training = dr.corpus();
@@ -3301,6 +3579,8 @@ void TrainProcess<AM_t>::get_idf(variables_map vm, const Corpus &training, Dict&
         cnn::real idfscore = idf_val;
         mv_idf[id] = idfscore;
     }
+
+    ptr_tfidfScore = new TFIDFMetric(mv_idf, sd.size());
 }
 
 /**
