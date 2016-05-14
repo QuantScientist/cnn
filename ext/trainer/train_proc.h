@@ -172,6 +172,8 @@ public:
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
         bool bcharlevel, bool nosplitdialogue);
 
+    void batch_train_ranking(Model &model, Proc &am, size_t max_epochs, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel);
+
     /// adaptation using a small adaptation
     void online_adaptation(Model &model, Proc &am,
         const Dialogue & training, // user_input_target_response_pair,
@@ -226,7 +228,7 @@ public:
     void nosegmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt,
         TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr);
     void segmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
-//    void segmental_forward_backward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
+    pair<cnn::real, cnn::real> segmental_forward_backward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     void segmental_forward_backward_with_additional_feature(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
         cnn::real &dloss, cnn::real & dchars_s, cnn::real & dchars_t, Trainer* sgd, Dict& sd, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0,
@@ -366,7 +368,6 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
 /**
 Test recall value 
 */
-
 template <class AM_t>
 void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& test_corpusinfo,
     bool use_tfidf)
@@ -2054,14 +2055,13 @@ void TrainProcess<AM_t>::segmental_forward_backward_with_additional_feature(Mode
 /**
 return hit at rank0 (top-1) and hit within rank4 (top-5)
 */
-/*template <class AM_t>
-void TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+template <class AM_t>
+pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
     size_t turn_id = 0;
     size_t i_turns = 0;
     unsigned hits_top_5 = 0, hits_top_1 = 0;
     size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
-    vector<Expression> v_errs;
 
     IDFMetric idfScore(mv_idf);
 
@@ -2083,34 +2083,40 @@ void TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &
         vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
         vector<vector<cnn::real>> correct_response_costs(nutt, vector<cnn::real>(0));
 
-        for (int i = 0; i < num_candidate + 1; i++)
+        /// first compute likelihoods from the correct paths
         {
-            /// first compute correct responses likelihood
+            vector<Expression> v_errs;
+            ComputationGraph cg;
+            if (resetmodel)
             {
-                ComputationGraph cg;
-                if (turn_id == 0)
-                {
-                    v_errs = am.build_graph(turn, cg);
-                }
-                else
-                {
-                    v_errs = am.build_graph(prv_turn, turn, cg);
-                }
-
-                for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx++)
-                {
-                    Tensor tv = cg.get_value(v_errs[err_idx]);
-                    cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
-#ifdef RANKING_COMBINE_IDF
-                    cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
-                    cnn::real score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
-#else
-                    cnn::real score = lc;
-#endif
-                    correct_response_costs[err_idx].push_back(score);
-                }
+                am.reset();
             }
 
+            if (turn_id == 0)
+            {
+                v_errs = am.build_graph(turn, cg);
+            }
+            else
+            {
+                am.copy_external_memory_to_cxt(cg, nutt, prv_turn_correct_response_state);  /// reset state to that coresponding to the correct response history for negative responses
+                /// because this turn is dependent on the previous turn that is with the correct response
+
+                v_errs = am.build_graph(prv_turn, turn, cg);
+            }
+
+            for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx++)
+            {
+                Tensor tv = cg.get_value(v_errs[err_idx]);
+                cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
+                cnn::real score = lc;
+                correct_response_costs[err_idx].push_back(score);
+            }
+        }
+
+        /// compute positive and negative sample's likelihoods
+        for (int i = 0; i < num_candidate + 1; i++)
+        {
+            vector<Expression> v_errs;
             if (i < num_candidate)
             {
                 for (size_t ii = 0; ii < nutt; ii++)
@@ -2144,13 +2150,7 @@ void TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &
             for (size_t err_idx = 0; err_idx < v_errs.size(); err_idx++)
             {
                 Tensor tv = cg.get_value(v_errs[err_idx]);
-                cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
-#ifdef RANKING_COMBINE_IDF
-                cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
-                cnn::real score = (1 - weight_IDF) * lc - weight_IDF * idf_score;
-#else
-                cnn::real score = lc;
-#endif
+                cnn::real score = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
                 costs[err_idx].push_back(score);
             }
 
@@ -2161,7 +2161,22 @@ void TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &
                 cg.backward();
                 if (verbose)
                     cout << " done backprop " << endl;
-                sgd->update(am.twords);
+
+                /// compute average cost differences
+                cnn::real cost_penalty = 0;
+                for (size_t kk = 0; kk < v_errs.size(); kk++)
+                {
+                    cnn::real dif = correct_response_costs[kk].back() - costs[kk].back();
+                    if (dif > 0)
+                        cost_penalty += dif;
+                }
+
+                cout << "cost penalty " << cost_penalty << endl;
+                if (i < num_candidate && cost_penalty > 0)
+                    sgd->update(am.twords, -cost_penalty);  /// penalty for negative samples
+                else
+                    sgd->update(am.twords, 1.0);   /// encourage positive samples
+
                 if (verbose)
                     cout << " done update" << endl;
             }
@@ -2198,7 +2213,7 @@ void TrainProcess<AM_t>::segmental_forward_backward_ranking(Model &model, AM_t &
 
     return make_pair(hits_top_1, hits_top_5);
 }
-*/
+
 /**
 return hit at rank0 (top-1) and hit within rank4 (top-5)
 */
@@ -2844,6 +2859,103 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
         }
     }
+}
+
+/**
+train ranking models
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_epochs, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel)
+{
+    unsigned lines = 0;
+    unsigned hits_top_1 = 0;
+    unsigned hits_top_5 = 0;
+
+    map<int, tuple<int, int, int>> acc_over_turn;
+
+    ofstream of(out_file);
+
+    Timer iteration("completed in");
+
+    dev_set_scores->reset();
+
+    /// get all responses from training set, these responses will be used as negative samples
+    Sentences negative_responses = get_all_responses(train_corpus);
+
+    vector<bool> vd_selected(train_corpus.size(), false);  /// track if a dialgoue is used
+    size_t id_stt_diag_id = 0;
+    PDialogue vd_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
+    vector<int> id_sel_idx = get_same_length_dialogues(train_corpus, nparallel, id_stt_diag_id, vd_selected, vd_dialogues, train_corpusinfo);
+    size_t ndutt = id_sel_idx.size();
+
+    lines += ndutt * vd_dialogues.size();
+
+    long rand_pos = 0;
+    CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
+
+    int train_epoch = 0;
+    while (train_epoch < max_epochs)
+    {
+        while (ndutt > 0)
+        {
+            pair<unsigned, unsigned> this_hit;
+            this_hit = segmental_forward_backward_ranking(model, am, vd_dialogues, csls, ndutt, dev_set_scores, false, false, sgd);
+
+            hits_top_1 += this_hit.first;
+            hits_top_5 += this_hit.second;
+
+            if (acc_over_turn.find(vd_dialogues.size()) == acc_over_turn.end())
+            {
+                acc_over_turn[vd_dialogues.size()] = make_tuple(0, 0, 0);
+            }
+            get<0>(acc_over_turn[vd_dialogues.size()]) += this_hit.first;
+            get<1>(acc_over_turn[vd_dialogues.size()]) += this_hit.second;
+            get<2>(acc_over_turn[vd_dialogues.size()]) += ndutt * vd_dialogues.size();
+
+
+            id_sel_idx = get_same_length_dialogues(train_corpus, nparallel, id_stt_diag_id, vd_selected, vd_dialogues, train_corpusinfo);
+            ndutt = id_sel_idx.size();
+            lines += ndutt * vd_dialogues.size();
+
+            csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
+
+            if (verbose)
+            {
+                cerr << "selected " << ndutt << " :  ";
+                for (auto p : id_sel_idx)
+                    cerr << p << " ";
+                cerr << endl;
+            }
+        }
+
+
+        for (auto iter = acc_over_turn.begin(); iter != acc_over_turn.end(); iter++)
+        {
+            auto key = iter->first;
+            auto t = iter->second;
+
+            cerr << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
+            of << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
+        }
+        cerr << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+        of << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+
+        sgd->update_epoch();
+
+        cerr << "**SHUFFLE\n";
+        shuffle(training_numturn2did.vNumTurns.begin(), training_numturn2did.vNumTurns.end(), *rndeng);
+
+        id_stt_diag_id = 0;
+        vd_selected = vector<bool>(train_corpus.size(), false);
+        for (auto p : training_numturn2did.mapNumTurn2DialogId){
+            /// shuffle dailogues with the same number of turns
+            random_shuffle(p.second.begin(), p.second.end());
+        }
+
+        vd_selected.assign(train_corpus.size(), false);
+    }
+
+    of.close();
 }
 
 /**
