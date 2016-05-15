@@ -2957,11 +2957,23 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
                 cerr << endl;
             }
 
-			ilines_check_point += lines;
+			ilines_check_point = lines;
 			if (ilines_check_point > 50000)
 			{
 				save_cnn_model(model_out_fn + ".e" + boost::lexical_cast<string>(train_epoch) + ".ln" + boost::lexical_cast<string>(lines), &model);
 				ilines_check_point = 0; 
+
+        for (auto iter = acc_over_turn.begin(); iter != acc_over_turn.end(); iter++)
+        {
+            auto key = iter->first;
+            auto t = iter->second;
+
+            cerr << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
+            of << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
+        }
+        cerr << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+        of << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+
 			}
 
         }
