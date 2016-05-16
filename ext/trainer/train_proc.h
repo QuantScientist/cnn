@@ -2957,7 +2957,7 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
                 cerr << endl;
             }
 
-			ilines_check_point = lines;
+			ilines_check_point += ndutt * vd_dialogues.size();
 			if (ilines_check_point > 50000)
 			{
 				save_cnn_model(model_out_fn + ".e" + boost::lexical_cast<string>(train_epoch) + ".ln" + boost::lexical_cast<string>(lines), &model);
