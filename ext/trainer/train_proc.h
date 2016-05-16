@@ -1942,7 +1942,13 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
             )
             CheckGrad(model, cg);
 
-        if (sgd != nullptr)
+		Tensor tv = cg.get_value(am.s2txent.i);
+		TensorTools::PushElementsToMemory(scores->training_score_current_location,
+			scores->training_score_buf_size,
+			scores->training_scores,
+			tv);
+
+		if (sgd != nullptr)
         {
             if (verbose)
                 cout << " start backprop " << endl;
@@ -1953,12 +1959,6 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
             if (verbose)
                 cout << " done update" << endl;
         }
-
-        Tensor tv = cg.get_value(am.s2txent.i);
-        TensorTools::PushElementsToMemory(scores->training_score_current_location,
-            scores->training_score_buf_size,
-            scores->training_scores,
-            tv);
 
         scores->swords += am.swords;
         scores->twords += am.twords;
