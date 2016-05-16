@@ -323,11 +323,13 @@ void RmsPropTrainer::compute_gradient_norm(
 #endif
 
     vpgrd_norm.resize(i_mdl_size[0]);
+#pragma parallel for
     for (int i = 0; i < i_mdl_size[0]; i++)
         vpgrd_norm[i] = *(v_norm + i);
 
     vl_grd_norm.resize(i_mdl_size[1]);
-    for (int i = 0; i < i_mdl_size[1]; i++)
+#pragma parallel for
+	for (int i = 0; i < i_mdl_size[1]; i++)
         vl_grd_norm[i] = *(v_norm + i + i_mdl_size[0]);
 
 #ifdef HAVE_CUDA
