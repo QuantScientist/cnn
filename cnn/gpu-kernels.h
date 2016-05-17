@@ -87,6 +87,7 @@ __global__ void ker_dotproduct(int n, const cnn::real* x, const cnn::real* y, cn
 // adapted from NVIDIA example
 __global__ void ker_sqeucdist(int n, const cnn::real *x0, const cnn::real *x1, cnn::real* res);
 
+__global__ void ker_mem_cpy(int n, cnn::real *target, const cnn::real* src);
 
 } // namespace gpu
 } // namespace cnn
