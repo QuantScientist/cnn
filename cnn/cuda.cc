@@ -79,7 +79,8 @@ void Initialize_GPU(int& argc, char**& argv, unsigned random_seed, int prefered_
     cerr << "[cnn]   Device name: " << prop.name << endl;
     cerr << "[cnn]   Memory Clock Rate (KHz): " << prop.memoryClockRate << endl;
     cerr << "[cnn]   Memory Bus Width (bits): " << prop.memoryBusWidth << endl;
-    cerr << "[cnn]   Peak Memory Bandwidth (GB/s): " << (2.0*prop.memoryClockRate*(prop.memoryBusWidth/8)/1.0e6) << endl << endl;
+	cerr << "[cnn]   Unified Addressing : " << prop.unifiedAddressing << endl;
+	cerr << "[cnn]   Peak Memory Bandwidth (GB/s): " << (2.0*prop.memoryClockRate*(prop.memoryBusWidth / 8) / 1.0e6) << endl << endl;
     CUDA_CHECK(cudaMemGetInfo( &free_bytes, &total_bytes ));
     CUDA_CHECK(cudaDeviceReset());
     cerr << "[cnn]   Memory Free (MB): " << (int)free_bytes/1.0e6 << "/" << (int)total_bytes/1.0e6 << endl << endl;
