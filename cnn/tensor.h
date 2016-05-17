@@ -13,6 +13,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "cnn/cuda.h"
+#include "cnn/gpu-ops.h"
 #endif
 #include <boost/serialization/array.hpp>
 
@@ -144,10 +145,11 @@ struct Tensor {
     if (m_device_id < 0)
         ar & boost::serialization::make_array(v, d.size());
     else{
-        cnn::real * vc = (cnn::real*)malloc(d.size() * sizeof(cnn::real));
-        CUDA_CHECK(cudaMemcpy(vc, v, d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
+		cnn::real *vc; 
+		CUDA_CHECK(cudaHostAlloc(&vc, sizeof(cnn::real) * d.size(), cudaHostAllocDefault));
+		gpu::gpu_memcpy(d.size(), vc, v); // CUDA_CHECK(cudaMemcpy(vc, v, d.size() * sizeof(cnn::real), cudaMemcpyDefault));
         ar & boost::serialization::make_array(vc, d.size());
-        free(vc);
+        CUDA_CHECK(cudaFreeHost(vc));
     }
 #else
     ar & boost::serialization::make_array(v, d.size());
