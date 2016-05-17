@@ -87,6 +87,9 @@ namespace gpu {
     /// clip each element of x0 if its absolute value is larger than the threshold
     void simple_clipping(int n, const cnn::real* x0, cnn::real* y, cnn::real threshold);
 
+	/// simple kernel to copy to/from gpu and cudaallocatehost
+	void gpu_memcpy(int n, cnn::real* tgt, const cnn::real* src);
+
 
 } // namespace gpu
 } // namespace cnn

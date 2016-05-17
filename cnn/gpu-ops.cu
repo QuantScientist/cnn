@@ -757,6 +757,12 @@ void kMaxPooling_backward(const int n, const int m, const cnn::real *xs, const i
     }
 }
 
+void gpu_memcpy(int n, cnn::real* tgt, const cnn::real* src) {
+	auto tb = SizeToBlockThreadPair(n);
+	ker_mem_cpy << <tb.first, tb.second >> >(n, tgt, src); 
+}
+
+
 
 } // namespace gpu
 } // namespace cnn
