@@ -102,6 +102,13 @@ namespace cnn {
             }
         }
 
+		/// simple memory copy to/from host memory
+		__global__ void ker_mem_cpy(int n, cnn::real *target, const cnn::real* src) {
+			if (threadIdx.x + blockDim.x * blockIdx.x < n)
+				target[n] = src[n];
+			__syncthreads();
+		}
+
     } // namespace gpu
 } // namespace cnn
 
