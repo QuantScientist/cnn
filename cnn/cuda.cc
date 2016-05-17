@@ -17,7 +17,7 @@ cublasHandle_t cublas_handle;
 cudnnHandle_t cudnn_handle;
 cudnnDataType_t cudnnDataType;
 curandGenerator_t curndGeneratorHandle;
-
+extern cnn::real* glb_gpu_accessible_host_mem;
 void Initialize_CUDNN()
 {
     cudnn_handle = nullptr;
@@ -52,6 +52,8 @@ void Free_GPU()
     CUBLAS_CHECK(cublasDestroy(cublas_handle));
 
     CHECK_CURND(curandDestroyGenerator(curndGeneratorHandle));
+    if (glb_gpu_accessible_host_mem != nullptr)
+        CUDA_CHECK(cudaFreeHost(glb_gpu_accessible_host_mem));
 #endif
 }
 
