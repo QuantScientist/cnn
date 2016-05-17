@@ -80,7 +80,7 @@ if(LOOKUP_AT_CPU MATCHES "^USE_CPU_FOR_LOOKUP_PARAM$")
   add_definitions(-DUSE_CPU_FOR_LOOKUP_PARAM)
 endif()
 
-if (USE_CURAND MATCHES "^USE_CURAND$")
+if (USE_CURAND)
   add_definitions(-DUSE_CURAND)
 endif()
 
