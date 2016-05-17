@@ -79,7 +79,7 @@ namespace cnn {
         cerr << "Allocating memory...\n";
 		unsigned long num_mb = 512UL;
         mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20), true);
-        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 16); /// save gradient norms
+        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 12); /// save gradient norms
         glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 25);
 
         if (demo)
@@ -93,8 +93,8 @@ namespace cnn {
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
             dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
 #else
-            fxs = new AlignedMemoryPool<ALIGN>(768UL * (1UL << 22)); /// 3G memory
-            dEdfs = new AlignedMemoryPool<ALIGN>(768UL * (1UL << 22)); /// 3G memory
+            fxs = new AlignedMemoryPool<ALIGN>(512 * (1UL << 22)); /// 2G memory
+            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22)); /// 2G memory
 #endif
         }
         cerr << "Done.\n";
