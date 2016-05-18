@@ -35,12 +35,12 @@ inline void* cnn_mm_malloc(size_t n, size_t align, bool on_cpu_only = false) {
   }
 
 #ifdef HAVE_CUDA
-//  if (verbose){
-//      size_t total_mem, free_mem;
-//      CUDA_CHECK(cudaMemGetInfo(&free_mem, &total_mem));
-//      std::cout << ":Allocated " << n;
-//      std::cout << " Currently " << free_mem << " bytes free" << std::endl;
-//  }
+/*  {
+      size_t total_mem, free_mem;
+      CUDA_CHECK(cudaMemGetInfo(&free_mem, &total_mem));
+      std::cout << ":Allocated " << n;
+      std::cout << " Currently " << free_mem << " bytes free" << std::endl;
+  }*/
 #endif
 
   if (!ptr) {
