@@ -10,7 +10,8 @@ namespace cnn {
 typedef enum { simple_clipping = 0, norm_clipping = 1 } t_gradient_clipping;
 struct Trainer {
   explicit Trainer(Model* m, cnn::real lam, cnn::real e0) :
-  eta0(e0), eta(e0), eta_decay(), epoch(), lambda(lam), clipping_enabled(true), clip_threshold(5), clips(), updates(), model(m), clipping_type(norm_clipping) {}
+  eta0(e0), eta(e0), eta_decay(), epoch(), lambda(lam), clipping_enabled(true), clip_threshold(5), clips(), updates(), model(m), clipping_type(norm_clipping) {
+  }
   virtual ~Trainer();
 
   virtual void update(cnn::real nutt = 1.0, cnn::real scale = 1.0) = 0;

@@ -88,7 +88,6 @@ class MultiSource_LinearEncoder : public DialogueBuilder<Builder, Decoder>{
     using DialogueBuilder<Builder, Decoder>::save_context;
     using DialogueBuilder<Builder, Decoder>::decoder_single_instance_step;
     using DialogueBuilder<Builder, Decoder>::serialise_cxt_to_external_memory;
-    using DialogueBuilder<Builder, Decoder>::serialise_context;
     using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
 	using DialogueBuilder<Builder, Decoder>::nutt;
 	using DialogueBuilder<Builder, Decoder>::i_h0;
@@ -1505,7 +1504,7 @@ class AttMultiSource_LinearEncoder_WithMaxEntropyFeature : public AttMultiSource
 	using AttMultiSource_LinearEncoder<Builder, Decoder>::attention_output_for_this_turn;
     using MultiSource_LinearEncoder<Builder, Decoder>::beam_decode;
     using MultiSource_LinearEncoder<Builder, Decoder>::serialise_cxt_to_external_memory;
-    using DialogueBuilder<Builder, Decoder>::serialise_context;
+    using MultiSource_LinearEncoder<Builder, Decoder>::serialise_context;
 
     using MultiSource_LinearEncoder<Builder, Decoder>::completed;
     using MultiSource_LinearEncoder<Builder, Decoder>::get_beam_decode_complete_list;
