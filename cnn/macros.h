@@ -41,6 +41,9 @@ typedef float real;
 /// for math
 #define LZERO -57.00
 
+/// for gpu allocated memory on host, i.e., pinned memory
+#define GPU_ALLOC_HOST_MEM_SIZE 12768
+
 /// preallocate a GPU memory of consts 1/k
 /// the following is the maximum numbers [1/2,1/3,...1/(MEM_PRE_ALLOCATED_CONSTS_NUMBERS+1)]
 #define MEM_PRE_ALLOCATED_CONSTS_NUMBERS 100
