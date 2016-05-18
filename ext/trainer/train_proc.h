@@ -2241,7 +2241,7 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
 
 /**
 return hit at rank0 (top-1) and hit within rank4 (top-5)
-*/
+reftfidf_context*/
 template <class AM_t>
 pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &model, AM_t &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
@@ -2270,22 +2270,25 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
     {
         auto turn_back = turn;
         vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
+        vector<vector<cnn::real>> reftfidf_context;
 
         /// assign context
-        if (prv_turn_tfidf.size() == 0)
-            prv_turn_tfidf = turn;
-        else{
+        if (weight_IDF > 0)
+        {
+            if (prv_turn_tfidf.size() == 0)
+                prv_turn_tfidf = turn;
+            else{
+                for (int u = 0; u < nutt; u++)
+                {
+                    prv_turn_tfidf[u].first.insert(prv_turn_tfidf[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+                }
+            }
+
             for (int u = 0; u < nutt; u++)
             {
-                prv_turn_tfidf[u].first.insert(prv_turn_tfidf[u].first.end(), turn[u].first.begin(), turn[u].first.end());
+                vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn_tfidf[u].first);
+                reftfidf_context.push_back(reftfidf);
             }
-        }
-
-        vector<vector<cnn::real>> reftfidf_context;
-        for (int u = 0; u < nutt; u++)
-        {
-            vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn_tfidf[u].first);
-            reftfidf_context.push_back(reftfidf);
         }
 
         for (int i = 0; i < num_candidate + 1; i++)
@@ -2326,12 +2329,14 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
                 Tensor tv = cg.get_value(v_errs[err_idx]);
                 cnn::real lc = TensorTools::AccessElement(tv, 0) / turn[err_idx].second.size();
                 cnn::real score = lc;
-#ifdef RANKING_COMBINE_TFIDF
-                vector<cnn::real> hyptfidf = ptr_tfidfScore->GetStats(turn[err_idx].second);
-                /// compute cosine similarity
-                cnn::real sim = cnn::metric::cosine_similarity(reftfidf_context[err_idx], hyptfidf);
-                score = (1 - weight_IDF) * lc - weight_IDF * sim;
-#endif
+                if (weight_IDF > 0.0 && ptr_tfidfScore != nullptr)
+                {
+                    vector<cnn::real> hyptfidf = ptr_tfidfScore->GetStats(turn[err_idx].second);
+                    /// compute cosine similarity
+                    cnn::real sim = cnn::metric::cosine_similarity(reftfidf_context[err_idx], hyptfidf);
+                    score = (1 - weight_IDF) * lc - weight_IDF * sim;
+                }
+
 
 #ifdef RANKING_COMBINE_IDF
                 cnn::real idf_score = idfScore.GetStats(turn[err_idx].first, turn[err_idx].second).second / turn[err_idx].second.size();
@@ -2344,9 +2349,6 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
             {
                 /// this is the context with the correct responses history
                 am.serialise_cxt_to_external_memory(cg, correct_response_state);
-                for (size_t k = 0; k < correct_response_state.size(); k++)
-                for (size_t i = 0; i < correct_response_state[k].size(); i++)
-                    correct_response_state[k][i] = 0;
             }
         }
 
@@ -2365,6 +2367,14 @@ pair<unsigned, unsigned> TrainProcess<AM_t>::segmental_forward_ranking(Model &mo
                 hits_top_5++;
             }
 
+        }
+
+        if (weight_IDF > 0.0 && ptr_tfidfScore != nullptr)
+        {
+            for (int u = 0; u < nutt; u++)
+            {
+                prv_turn_tfidf[u].first.insert(prv_turn_tfidf[u].first.end(), turn[u].second.begin(), turn[u].second.end());
+            }
         }
 
         prv_turn = turn;
