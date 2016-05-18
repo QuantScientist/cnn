@@ -327,7 +327,7 @@ void RmsPropTrainer::compute_gradient_norm(
     }
 
     vpgrd_norm.resize(i_mdl_size[0]);
-//    display_value(2, v_norm, "gradient norm in GPU ");
+#ifdef HAVE_CUDA
     CUDA_CHECK(cudaMemcpy(glb_gpu_accessible_host_mem, v_norm, sizeof(cnn::real)*(i_mdl_size[0] + i_mdl_size[1]), cudaMemcpyDeviceToHost));
 #pragma parallel for
     for (int i = 0; i < i_mdl_size[0]; i++)
@@ -337,7 +337,16 @@ void RmsPropTrainer::compute_gradient_norm(
 #pragma parallel for
 	for (int i = 0; i < i_mdl_size[1]; i++)
         vl_grd_norm[i] = *(glb_gpu_accessible_host_mem + i + i_mdl_size[0]);
+#else
+#pragma parallel for
+    for (int i = 0; i < i_mdl_size[0]; i++)
+        vpgrd_norm[i] = *(v_norm + i);
 
+    vl_grd_norm.resize(i_mdl_size[1]);
+#pragma parallel for
+    for (int i = 0; i < i_mdl_size[1]; i++)
+        vl_grd_norm[i] = *(v_norm + i + i_mdl_size[0]);
+#endif
 
 #ifdef HAVE_CUDA
     glb_temp_working_mem->dealocate(sizeof(cnn::real) * i_mdl_total_size);
