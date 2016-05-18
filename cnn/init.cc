@@ -21,6 +21,7 @@ namespace cnn {
     AlignedMemoryPool<ALIGN>* glb_temp_working_mem = nullptr;
     AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem = nullptr; /// this saves gradient on those sparse lookup table parameters that have non-zero gradiens. these values and gradients are temporary
     mt19937* rndeng = nullptr;
+    cnn::real* glb_gpu_accessible_host_mem = nullptr;
 
     char* getCmdOption(char ** begin, char ** end, const std::string & option)
     {
@@ -78,9 +79,13 @@ namespace cnn {
 
         cerr << "Allocating memory...\n";
 		unsigned long num_mb = 512UL;
-        mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20), true);
-        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 12); /// save gradient norms
-        glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 25);
+        mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22), true);
+        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 13); /// save gradient norms
+        glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 26);
+#ifdef HAVE_CUDA
+        /// because of using unified memory, need to synchronize GPU to CPU memory
+        CUDA_CHECK(cudaHostAlloc(&glb_gpu_accessible_host_mem, sizeof(cnn::real) * GPU_ALLOC_HOST_MEM_SIZE, cudaHostAllocDefault));
+#endif
 
         if (demo)
         {
@@ -93,8 +98,8 @@ namespace cnn {
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
             dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
 #else
-            fxs = new AlignedMemoryPool<ALIGN>(512 * (1UL << 22)); /// 2G memory
-            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22)); /// 2G memory
+            fxs = new AlignedMemoryPool<ALIGN>(780 * (1UL << 22)); /// 3G memory
+            dEdfs = new AlignedMemoryPool<ALIGN>(780 * (1UL << 22)); /// 3G memory
 #endif
         }
         cerr << "Done.\n";
