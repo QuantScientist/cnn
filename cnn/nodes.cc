@@ -1007,6 +1007,14 @@ void Concatenate::backward_impl(const vector<const Tensor*>& xs,
 void ConcatenateColumns::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
   unsigned c = 0;
 
+#ifdef HAVE_CUDA
+  vector<cudaStream_t> v_stream(xs.size());
+  for (unsigned i = 0; i < xs.size(); i++)
+  {
+      CUDA_CHECK(cudaStreamCreate(&v_stream[i]));
+  }
+#endif
+
   fx.m_device_id = xs[0]->m_device_id;
   acc_col_size.clear();
   for (unsigned i = 0; i < xs.size(); ++i) {
@@ -1015,13 +1023,21 @@ void ConcatenateColumns::forward_impl(const vector<const Tensor*>& xs, Tensor& f
 #if HAVE_CUDA
     // CUBLAS matricies are column-major, so just copy the memory
     const unsigned rows = xi.d.rows();
-    CUDA_CHECK(cudaMemcpyAsync(&fx.v[rows*c], xi.v, sizeof(cnn::real) * rows * cols, cudaMemcpyDeviceToDevice));
+    CUDA_CHECK(cudaMemcpyAsync(&fx.v[rows*c], xi.v, sizeof(cnn::real) * rows * cols, cudaMemcpyDeviceToDevice, v_stream[i]));
 #else
     (*fx).middleCols(c, cols) = **xs[i];
 #endif
     c += cols;
     acc_col_size.push_back(c);
   }
+
+#ifdef HAVE_CUDA
+  CUDA_CHECK(cudaDeviceSynchronize());
+  for (unsigned i = 0; i < xs.size(); i++)
+  {
+      CUDA_CHECK(cudaStreamDestroy(v_stream[i]));
+  }
+#endif
 }
 
 void ConcatenateColumns::backward_impl(const vector<const Tensor*>& xs,
