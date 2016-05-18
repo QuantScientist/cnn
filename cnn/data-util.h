@@ -217,7 +217,7 @@ long get_file_size(std::string filename);
 /// for ranking experiments
 Sentences get_all_responses(Corpus &training);
 
-CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long& rand_pos);
+CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long& rand_pos, int max_number_of_negative_samples);
 
 /// sort with index
 template <typename T>
