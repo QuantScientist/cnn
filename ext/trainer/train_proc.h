@@ -2002,6 +2002,7 @@ void TrainProcess<AM_t>::segmental_forward_backward_with_additional_feature(Mode
         for (int u = 0; u < nutt; u++)
         {
             vector<cnn::real> reftfidf = ptr_tfidfScore->GetStats(prv_turn_tfidf[u].first);
+            normalize(reftfidf);
             reftfidf_context.push_back(reftfidf);
         }
 
@@ -2963,16 +2964,16 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
 				save_cnn_model(model_out_fn + ".e" + boost::lexical_cast<string>(train_epoch) + ".ln" + boost::lexical_cast<string>(lines), &model);
 				ilines_check_point = 0; 
 
-        for (auto iter = acc_over_turn.begin(); iter != acc_over_turn.end(); iter++)
-        {
-            auto key = iter->first;
-            auto t = iter->second;
+                for (auto iter = acc_over_turn.begin(); iter != acc_over_turn.end(); iter++)
+                {
+                    auto key = iter->first;
+                    auto t = iter->second;
 
-            cerr << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
-            of << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
-        }
-        cerr << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
-        of << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+                    cerr << "turn len : " << key << ", " << get<2>(t) << " lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
+                    of << "turn len : " << key << ", " << get<2>(t) << " lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
+                }
+                cerr << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total dialogues " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << endl;
+                of << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total dialogues " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << endl;
 
 			}
 
@@ -2987,8 +2988,8 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
             cerr << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
             of << "turn len :" << key << ", " << get<2>(t) << "lines, R@1 " << get<0>(t) / (get<2>(t) +0.0) * 100 << "%., R@5 " << get<1>(t) / (get<2>(t) +0.0) * 100 << "%." << endl;
         }
-        cerr << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
-        of << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << ' ';
+        cerr << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total dialogues " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << endl;
+        of << "epoch " << train_epoch << "\n***Test [lines =" << lines << " out of total dialogues " << train_corpus.size() << " lines ] 1 in" << (MAX_NUMBER_OF_CANDIDATES + 1) << " R@1 " << hits_top_1 / (lines + 0.0) *100.0 << "%." << " R@5 " << hits_top_5 / (lines + 0.0) *100.0 << "%." << endl;
 
         sgd->update_epoch();
 
@@ -3007,7 +3008,11 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
         vd_selected.assign(train_corpus.size(), false);
 
 		train_epoch++;
-		lines = 0;
+
+        id_sel_idx = get_same_length_dialogues(train_corpus, nparallel, id_stt_diag_id, vd_selected, vd_dialogues, train_corpusinfo);
+        ndutt = id_sel_idx.size();
+        lines = ndutt * vd_dialogues.size();
+
     }
 
     of.close();
