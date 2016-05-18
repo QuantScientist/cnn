@@ -1579,3 +1579,14 @@ long get_file_size(std::string filename)
     myfile.close();
     return end - begin;
 }
+
+void normalize(vector<cnn::real>& v)
+{
+    cnn::real n = 0;
+    for (auto &p : v)
+        n += p * p;
+    n = sqrt(n);
+
+    for (auto &p : v)
+        p = p / n;
+}

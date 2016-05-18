@@ -234,6 +234,8 @@ vector<size_t> sort_indexes(const vector<T> &v) {
     return idx;
 };
 
+void normalize(vector<cnn::real>& v);
+
 /**
 using own thread to read data into a host memory
 */
