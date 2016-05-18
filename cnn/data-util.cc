@@ -278,7 +278,7 @@ Sentences get_all_responses(Corpus &training)
     return responses;
 }
 
-CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long &rand_pos)
+CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long &rand_pos, int max_number_of_negative_samples)
 {
     CandidateSentencesList csls;
     int sz_negative_responses = negative_responses.size();
@@ -287,7 +287,7 @@ CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & 
     for (size_t i = 0; i < selected.size(); i++)
     {
         Sentences newVec;
-        for (int k = 0; k < MAX_NUMBER_OF_CANDIDATES; k++)
+        for (int k = 0; k < max_number_of_negative_samples; k++)
         {
             int pos = rand_pos % sz_negative_responses;
             newVec.push_back(negative_responses[pos]);
