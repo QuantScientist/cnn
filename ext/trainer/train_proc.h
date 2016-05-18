@@ -173,7 +173,7 @@ public:
         bool bcharlevel, bool nosplitdialogue);
 
     void batch_train_ranking(Model &model, Proc &am, size_t max_epochs, Corpus &train_corpus, string model_out_fn, 
-		string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel);
+		string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel, int max_negative_samples);
 
     /// adaptation using a small adaptation
     void online_adaptation(Model &model, Proc &am,
@@ -220,7 +220,7 @@ public:
     void test(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test_segmental(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test(Model &model, Proc &am, TupleCorpus &devel, string out_file, Dict & sd, Dict & td);
-    void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool use_tfidf);
+    void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool use_tfidf, int max_negative_samples);
 
     void dialogue(Model &model, Proc &am, string out_file, Dict & td);
 
@@ -371,7 +371,7 @@ Test recall value
 */
 template <class AM_t>
 void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corpus &train_corpus, string out_file, Dict & td, NumTurn2DialogId& test_corpusinfo,
-    bool use_tfidf)
+    bool use_tfidf, int max_negative_samples)
 {
     unsigned lines = 0;
     unsigned hits_top_1 = 0;
@@ -397,7 +397,7 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
     lines += ndutt * vd_dialogues.size();
 
     long rand_pos = 0;
-    CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
+    CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos, max_negative_samples);
 
     while (ndutt > 0)
     {
@@ -423,7 +423,7 @@ void TrainProcess<AM_t>::testRanking(Model &model, AM_t &am, Corpus &devel, Corp
         ndutt = id_sel_idx.size();
         lines += ndutt * vd_dialogues.size();
 
-        csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
+        csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos, max_negative_samples);
 
         if (verbose)
         {
@@ -2063,7 +2063,7 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
     size_t turn_id = 0;
     size_t i_turns = 0;
     unsigned hits_top_5 = 0, hits_top_1 = 0;
-    size_t num_candidate = MAX_NUMBER_OF_CANDIDATES;
+    size_t num_candidate = csls[0].size();
 
     IDFMetric idfScore(mv_idf);
 
@@ -2072,18 +2072,15 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
     if (verbose)
         cout << "start segmental_forward_backward" << endl;
 
-    /// the negative candidate number should match to that expected
-    assert(MAX_NUMBER_OF_CANDIDATES == csls[0].size());
-
     vector<vector<cnn::real>> correct_response_state;
     vector<vector<cnn::real>> prv_turn_correct_response_state;
+    vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
+    vector<vector<cnn::real>> correct_response_costs(nutt, vector<cnn::real>(0));
 
     size_t idx = 0;
     for (auto turn : v_v_dialogues)
     {
         auto turn_back = turn;
-        vector<vector<cnn::real>> costs(nutt, vector<cnn::real>(0));
-        vector<vector<cnn::real>> correct_response_costs(nutt, vector<cnn::real>(0));
 
         /// first compute likelihoods from the correct paths
         {
@@ -2163,6 +2160,8 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
 				int ndif = 0;
                 for (size_t kk = 0; kk < v_errs.size(); kk++)
                 {
+                    if (verbose)
+                        cout << "c: " << correct_response_costs[kk].back() << " neg: " << costs[kk].back() << ' ';
                     cnn::real dif = correct_response_costs[kk].back() - costs[kk].back();
 					if (dif > 0)
 					{
@@ -2170,8 +2169,10 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
 						cost_penalty += dif;
 					}
                 }
+                if (verbose) 
+                    cout << endl;
 
-				if (i < num_candidate && cost_penalty > 0 || i == num_candidate)
+				if (cost_penalty > 0 || i == num_candidate)
 				{
 					if (verbose)
 						cout << " start backprop " << endl;
@@ -2180,12 +2181,14 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
 						cout << " done backprop " << endl;
 
 					cnn::real reward = 0.0;
-					if (cost_penalty > 0 && i != num_candidate)
+					if (cost_penalty > 0 && i != num_candidate && num_candidate > 0)
 					{
-						reward = - ndif / v_errs.size(); /// the penalty is proportional to the number of 
+						reward = - ndif / ((cnn::real)v_errs.size()); /// the penalty is proportional to the number of 
                         /// samples that have lower cost than the positive sample.
+                        reward /= (cnn::real)num_candidate;  /// normalize to the number of candidate
+                        /// so that if all are wrong, the scale it adds is at most -1.0
 					}
-					else
+                    else if (i==num_candidate)
 					{
 						assert(i == num_candidate);
 						reward = 1.0; /// this is the case of positive sample
@@ -2887,7 +2890,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 train ranking models
 */
 template <class AM_t>
-void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_epochs, Corpus &train_corpus, string model_out_fn, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel)
+void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_epochs, Corpus &train_corpus, string model_out_fn, string out_file, Dict & td, NumTurn2DialogId& train_corpusinfo, Trainer *sgd, int nparallel, int max_negative_samples)
 {
 	if (train_corpus.size() == 0)
 	{
@@ -2920,7 +2923,7 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
 
     long rand_pos = 100;  /// avoid using the same starting point as that in test so that no overlaps between 
     /// training and test responses candidate sequences
-    CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
+    CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos, max_negative_samples);
 
     int train_epoch = 0;
     while (train_epoch < max_epochs)
@@ -2950,7 +2953,7 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
             ndutt = id_sel_idx.size();
             lines += ndutt * vd_dialogues.size();
 
-            csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
+            csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos, max_negative_samples);
 
             if (verbose)
             {
