@@ -2182,7 +2182,8 @@ pair<cnn::real, cnn::real> TrainProcess<AM_t>::segmental_forward_backward_rankin
 					cnn::real reward = 0.0;
 					if (cost_penalty > 0 && i != num_candidate)
 					{
-						reward = -cost_penalty / ndif;
+						reward = - ndif / v_errs.size(); /// the penalty is proportional to the number of 
+                        /// samples that have lower cost than the positive sample.
 					}
 					else
 					{
@@ -2917,7 +2918,8 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
 
     lines += ndutt * vd_dialogues.size();
 
-    long rand_pos = 0;
+    long rand_pos = 100;  /// avoid using the same starting point as that in test so that no overlaps between 
+    /// training and test responses candidate sequences
     CandidateSentencesList csls = get_candidate_responses(vd_dialogues, negative_responses, rand_pos);
 
     int train_epoch = 0;
