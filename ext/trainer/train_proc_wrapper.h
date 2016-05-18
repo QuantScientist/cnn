@@ -347,7 +347,8 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
 
 			training_numturn2did = get_numturn2dialid(training);
 		}
-		ptrTrainer->batch_train_ranking(model, hred, vm["epochs"].as<int>(), training, fname, vm["outputfile"].as<string>(), sd, training_numturn2did, sgd, vm["nparallel"].as<int>());
+		ptrTrainer->batch_train_ranking(model, hred, vm["epochs"].as<int>(), training, fname, vm["outputfile"].as<string>(), sd, training_numturn2did, sgd, vm["nparallel"].as<int>(), 
+            vm["max_number_of_negative_samples"].as<int>());
 	}
 	else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0)
     {   // split data into nparts and train
@@ -386,7 +387,8 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     }
     else if (vm["ranker"].as<bool>() && testcorpus.size() > 0 && training.size() > 0)
     {
-        ptrTrainer->testRanking(model, hred, testcorpus, training, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["ranking_using_tfidf"].as<bool>());
+        ptrTrainer->testRanking(model, hred, testcorpus, training, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["ranking_using_tfidf"].as<bool>(), 
+            vm["max_number_of_negative_samples"].as<int>());
     }
     else
     {
