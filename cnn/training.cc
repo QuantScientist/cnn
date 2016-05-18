@@ -8,13 +8,15 @@ using namespace std;
 
 extern AlignedMemoryPool<ALIGN>* glb_temp_working_mem ;
 extern AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem;
+extern cnn::real* glb_gpu_accessible_host_mem;
 
 template <class Derived>
 bool is_valid(const Eigen::MatrixBase<Derived>& x) {
   return ((x - x).array() == (x - x).array()).all();
 }
 
-Trainer::~Trainer() {}
+Trainer::~Trainer() {
+}
 
 /** 
 @scale : proportional to the number of samples trained in parallel 
@@ -318,20 +320,24 @@ void RmsPropTrainer::compute_gradient_norm(
         }
     }
 
-#ifdef HAVE_CUDA
-    /// because of using unified memory, need to synchronize GPU to CPU memory
-    cudaDeviceSynchronize();
-#endif
+    if (i_mdl_total_size > GPU_ALLOC_HOST_MEM_SIZE)
+    {
+        cerr << "out of memory for p_host_memory" << endl;
+        throw("out of memory for p_host_memory");
+    }
 
     vpgrd_norm.resize(i_mdl_size[0]);
+//    display_value(2, v_norm, "gradient norm in GPU ");
+    CUDA_CHECK(cudaMemcpy(glb_gpu_accessible_host_mem, v_norm, sizeof(cnn::real)*(i_mdl_size[0] + i_mdl_size[1]), cudaMemcpyDeviceToHost));
 #pragma parallel for
     for (int i = 0; i < i_mdl_size[0]; i++)
-        vpgrd_norm[i] = *(v_norm + i);
+        vpgrd_norm[i] = *(glb_gpu_accessible_host_mem + i);
 
     vl_grd_norm.resize(i_mdl_size[1]);
 #pragma parallel for
 	for (int i = 0; i < i_mdl_size[1]; i++)
-        vl_grd_norm[i] = *(v_norm + i + i_mdl_size[0]);
+        vl_grd_norm[i] = *(glb_gpu_accessible_host_mem + i + i_mdl_size[0]);
+
 
 #ifdef HAVE_CUDA
     glb_temp_working_mem->dealocate(sizeof(cnn::real) * i_mdl_total_size);
