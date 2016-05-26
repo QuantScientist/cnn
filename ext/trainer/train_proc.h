@@ -221,6 +221,7 @@ public:
     void test_segmental(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     void test(Model &model, Proc &am, TupleCorpus &devel, string out_file, Dict & sd, Dict & td);
     void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool use_tfidf, int max_negative_samples);
+    void MMI_test(Proc &am, Proc& anti_am, Corpus &devel, string out_file, Dict & sd);
 
     void dialogue(Model &model, Proc &am, string out_file, Dict & td);
 
@@ -833,6 +834,137 @@ void TrainProcess<AM_t>::test_with_additional_feature(Model &model, AM_t &am, Co
     cnn::real edit_distance_score_hyp = editDistScoreHyp.GetScore();
     cout << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
     of << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+
+    of.close();
+}
+
+/** 
+use MMI method for testing
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::MMI_test(AM_t &am, AM_t& anti_am, 
+    Corpus &devel, string out_file, Dict & sd)
+{
+    BleuMetric bleuScore;
+    bleuScore.Initialize();
+
+    /*cnn::real idf_weight = 0.1;
+    cnn::real edist_weight = 0.1;*/
+    IDFMetric idfScore(mv_idf);
+
+    EditDistanceMetric editDistScoreHyp;
+    EditDistanceMetric editDistScoreRef;
+
+    ofstream of(out_file);
+
+    Timer iteration("completed in");
+
+    for (auto diag : devel){
+
+        SentencePair prv_turn;
+        size_t turn_id = 0;
+
+        /// train on two segments of a dialogue
+        vector<int> res;
+        vector<vector<int>> res_kbest;
+        vector<string> prv_response;
+        vector<string> prv_response_ref;
+        for (auto spair : diag)
+        {
+            ComputationGraph cg;
+
+            SentencePair turn = spair;
+            vector<string> sref, srec;
+
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
+
+            if (turn_id == 0)
+            {
+                res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+            }
+            else
+            {
+                res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+            }
+
+            if (turn.first.size() > 0)
+            {
+                cout << "source: ";
+                for (auto p : turn.first){
+                    cout << sd.Convert(p) << " ";
+                }
+                cout << endl;
+            }
+
+            if (turn.second.size() > 0)
+            {
+                cout << "ref response: ";
+                for (auto p : turn.second){
+                    cout << sd.Convert(p) << " ";
+                    sref.push_back(sd.Convert(p));
+                }
+                cout << endl;
+            }
+
+            beam_search_results = am.get_beam_decode_complete_list();
+
+            /// averaged_log_likelihood , idf_score, bleu_score
+            /// the goal is to rerank using (1-weight) * averaged_log_likelihood + weight * score_from_anti_model
+            vector<int> best_res;
+            cnn::real largest_score = -10000.0;
+            while (!beam_search_results.empty())
+            {
+                vector<int> result = beam_search_results.top().target;
+                cnn::real lk = beam_search_results.top().cost;
+
+                /// reverse direction
+                Dialogue backward_res, backward_src;
+                SentencePair sp_res, sp_src; 
+                sp_src.first = result; 
+                sp_src.second = turn.first;
+                backward_src.push_back(sp_src);
+                anti_am.build_graph(backward_res, backward_src, cg);
+
+                cnn::real anti_score = -as_scalar(cg.get_value(anti_am.s2txent.i)) / (0.0 + result.size());
+
+                cnn::real rerank_score = (1 - weight_IDF) * lk + weight_IDF * anti_score;
+
+                if (rerank_score > largest_score)
+                {
+                    largest_score = rerank_score;
+                    best_res = result;
+                }
+
+                beam_search_results.pop();
+            }
+
+            if (best_res.size() > 0)
+            {
+                srec.clear();
+                cout << "res response: ";
+                for (auto p : best_res){
+                    cout << sd.Convert(p) << " ";
+                    srec.push_back(sd.Convert(p));
+                }
+                cout << endl;
+            }
+            else
+            {
+                cout << "error: no outputs " << endl;
+            }
+
+            bleuScore.AccumulateScore(sref, srec);
+
+            turn_id++;
+            prv_turn = turn;
+            prv_response = srec;
+            prv_response_ref = sref;
+        }
+    }
+
+    string sBleuScore = bleuScore.GetScore();
+    cout << "BLEU (4) score = " << sBleuScore << endl;
+    of << "BLEU (4) score = " << sBleuScore << endl;
 
     of.close();
 }

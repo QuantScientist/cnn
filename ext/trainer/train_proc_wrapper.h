@@ -382,6 +382,21 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         }
         if (vm["withadditionalfeature"].as<bool>())
             ptrTrainer->test_with_additional_feature(model, hred, testcorpus, vm["outputfile"].as<string>(), sd);
+        if (vm["mmi-test"].as<bool>())
+        {
+            Model anti_model;
+            string fname;
+            if (vm.count("anti-model-parameters") > 0){
+                fname = vm["anti-model-parameters"].as<string>();
+            }
+            else
+                throw("need to specify either parameters or initialise model file name");
+            rnn_t anti_procs(anti_model, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
+
+            load_cnn_model(fname, &anti_model);
+
+            ptrTrainer->MMI_test(hred, anti_procs, testcorpus, vm["outputfile"].as<string>(), sd);
+        }
         else
             ptrTrainer->test(model, hred, testcorpus, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
     }
