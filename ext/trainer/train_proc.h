@@ -241,6 +241,7 @@ public:
     /// for reranking
     bool MERT_tune(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
     bool MERT_tune_edit_distance(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd, cnn::real weight_IDF=0.1);
+    void MERT_MMI_tune(Proc &am, Proc& anti_am, Corpus &devel, string out_file, Dict & sd);
 
 public:
     /// for test ranking candidate
@@ -526,6 +527,8 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
         vector<vector<int>> res_kbest;
         vector<string> prv_response;
         vector<string> prv_response_ref;
+
+        am.reset();
         for (auto spair : diag)
         {
             ComputationGraph cg;
@@ -690,6 +693,8 @@ void TrainProcess<AM_t>::test_with_additional_feature(Model &model, AM_t &am, Co
         vector<vector<int>> res_kbest;
         vector<string> prv_response;
         vector<string> prv_response_ref;
+
+        am.reset();
         for (auto spair : diag)
         {
             ComputationGraph cg;
@@ -869,51 +874,59 @@ void TrainProcess<AM_t>::MMI_test(AM_t &am, AM_t& anti_am,
         vector<vector<int>> res_kbest;
         vector<string> prv_response;
         vector<string> prv_response_ref;
+
+        vector<vector<vector<cnn::real>>> anit_model_correct_response_state;
+
+        am.reset();
         for (auto spair : diag)
         {
-            ComputationGraph cg;
-
             SentencePair turn = spair;
             vector<string> sref, srec;
 
             priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
 
-            if (turn_id == 0)
             {
-                res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
-            }
-            else
-            {
-                res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
-            }
+                ComputationGraph cg;
 
-            if (turn.first.size() > 0)
-            {
-                cout << "source: ";
-                for (auto p : turn.first){
-                    cout << sd.Convert(p) << " ";
+                if (turn_id == 0)
+                {
+                    res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
                 }
-                cout << endl;
-            }
-
-            if (turn.second.size() > 0)
-            {
-                cout << "ref response: ";
-                for (auto p : turn.second){
-                    cout << sd.Convert(p) << " ";
-                    sref.push_back(sd.Convert(p));
+                else
+                {
+                    res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
                 }
-                cout << endl;
+
+                if (turn.first.size() > 0)
+                {
+                    cout << "source: ";
+                    for (auto p : turn.first){
+                        cout << sd.Convert(p) << " ";
+                    }
+                    cout << endl;
+                }
+
+                if (turn.second.size() > 0)
+                {
+                    cout << "ref response: ";
+                    for (auto p : turn.second){
+                        cout << sd.Convert(p) << " ";
+                        sref.push_back(sd.Convert(p));
+                    }
+                    cout << endl;
+                }
+
+                beam_search_results = am.get_beam_decode_complete_list();
             }
 
-            beam_search_results = am.get_beam_decode_complete_list();
-
-            /// averaged_log_likelihood , idf_score, bleu_score
-            /// the goal is to rerank using (1-weight) * averaged_log_likelihood + weight * score_from_anti_model
             vector<int> best_res;
             cnn::real largest_score = -10000.0;
             while (!beam_search_results.empty())
             {
+                ComputationGraph cg;
+
+                anti_am.reset();
+
                 vector<int> result = beam_search_results.top().target;
                 cnn::real lk = beam_search_results.top().cost;
 
@@ -970,6 +983,119 @@ void TrainProcess<AM_t>::MMI_test(AM_t &am, AM_t& anti_am,
 }
 
 /**
+use MERT to tune weights for MMI decoding
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::MERT_MMI_tune(AM_t &am, AM_t& anti_am,
+    Corpus &devel, string out_file, Dict & sd)
+{
+    BleuMetric bleuScore;
+    bleuScore.Initialize();
+
+    /*cnn::real idf_weight = 0.1;
+    cnn::real edist_weight = 0.1;*/
+    IDFMetric idfScore(mv_idf);
+
+    EditDistanceMetric editDistScoreHyp;
+    EditDistanceMetric editDistScoreRef;
+
+    ofstream of(out_file);
+
+    vector<vector<tuple<cnn::real, cnn::real, cnn::real>>> dev_set_rerank_scores;
+    Timer iteration("completed in");
+
+    for (auto diag : devel){
+
+        SentencePair prv_turn;
+        size_t turn_id = 0;
+
+        /// train on two segments of a dialogue
+        vector<int> res;
+        vector<vector<int>> res_kbest;
+        vector<string> prv_response;
+        vector<string> prv_response_ref;
+
+        vector<vector<vector<cnn::real>>> anit_model_correct_response_state;
+
+        am.reset();
+        for (auto spair : diag)
+        {
+            SentencePair turn = spair;
+            vector<string> sref, srec;
+
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
+
+            {
+                ComputationGraph cg;
+
+                if (turn_id == 0)
+                {
+                    res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+                }
+                else
+                {
+                    res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+                }
+
+                if (turn.second.size() > 0)
+                {
+                    for (auto p : turn.second){
+                        sref.push_back(sd.Convert(p));
+                    }
+                }
+
+                beam_search_results = am.get_beam_decode_complete_list();
+            }
+
+            vector<int> best_res;
+            cnn::real largest_score = -10000.0;
+            vector<tuple<cnn::real, cnn::real, cnn::real>> rerank_scores;
+            while (!beam_search_results.empty())
+            {
+                ComputationGraph cg;
+
+                anti_am.reset();
+
+                vector<int> result = beam_search_results.top().target;
+                cnn::real lk = beam_search_results.top().cost;
+
+                /// reverse direction
+                Dialogue backward_res, backward_src;
+                SentencePair sp_res, sp_src;
+                sp_src.first = result;
+                sp_src.second = turn.first;
+                backward_src.push_back(sp_src);
+                anti_am.build_graph(backward_res, backward_src, cg);
+
+                cnn::real anti_score = -as_scalar(cg.get_value(anti_am.s2txent.i)) / (0.0 + result.size());
+
+                srec.clear();
+                for (auto p : result){
+                    srec.push_back(sd.Convert(p));
+                }
+                cnn::real bleu_score = bleuScore.GetSentenceScore(sref, srec);
+
+                rerank_scores.push_back(make_tuple(lk, anti_score, bleu_score));
+                beam_search_results.pop();
+            }
+            dev_set_rerank_scores.push_back(rerank_scores);
+
+            turn_id++;
+            prv_turn = turn;
+            prv_response = srec;
+            prv_response_ref = sref;
+        }
+    }
+
+    /// learn a weight to IDF score
+    cnn::real optimal_wgt = grid_search(dev_set_rerank_scores);
+
+    of << "optimal weight to IDF score is " << optimal_wgt << endl;
+
+    of.close();
+}
+
+/**
 using beam search, generated candidate lists
 each list has a tuple of scores
 averaged_log_likelihood , idf_score, bleu_score
@@ -1019,6 +1145,7 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
         /// train on two segments of a dialogue
         vector<int> res;
         vector<vector<int>> res_kbest;
+        am.reset();
         for (auto spair : diag)
         {
             ComputationGraph cg;
@@ -1029,9 +1156,9 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
 
             if (turn_id == 0)
-	      res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+                res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
             else
-	      res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+                res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
 
             sref.clear();
             if (turn.second.size() > 0)
@@ -1044,8 +1171,8 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             if (rerankIDF > 0)
             {
                 beam_search_results = am.get_beam_decode_complete_list();
-		if (beam_search_results.empty())
-		  cerr << "beam search complete list is empty " << endl;
+		        if (beam_search_results.empty())
+                    cerr << "beam search complete list is empty " << endl;
 
                 /// averaged_log_likelihood , idf_score, bleu_score
                 /// the goal is to rerank using averaged_log_likelihood + weight * idf_score
@@ -1083,54 +1210,9 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
     cout << "completed decoding" << endl;
 
     /// learn a weight to IDF score
-    vector<cnn::real> v_bleu_scores; 
-    vector<cnn::real> v_wgts;
-    cnn::real max_bleu_score = -10000.0;
-    int idx_wgt = -1;
-    for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.05)
-    {
-        v_wgts.push_back(idf_wgt);
-
-        cnn::real avg_bleu_score = 0;
-        for (auto t : dev_set_rerank_scores)
-        {
-            cnn::real max_combine_score = -10000.0;
-            int idx = -1;
-            int k = 0;
-            for (auto c : t)
-            {
-                cnn::real lk = std::get<0>(c); 
-                cnn::real idfscore = std::get<1>(c);
-                cnn::real this_score = (1.0 - idf_wgt) * lk + idf_wgt * idfscore;
-                if (max_combine_score < this_score)
-                {
-                    max_combine_score = this_score;
-                    idx = k;
-                }
-                k++;
-            }
-
-            if (idx >= 0)
-	      avg_bleu_score += std::get<2>(t[idx]);
-	    else
-	      cerr << "warning no bleu scores " << endl;
-        }
-        v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
-
-        if (max_bleu_score < v_bleu_scores.back())
-        {
-	  max_bleu_score = v_bleu_scores.back();
-	  idx_wgt = v_bleu_scores.size() - 1;
-        }
-
-	cout << "w(" << idf_wgt << ") " << v_bleu_scores.back() << " "; 
-    }
-    cout << endl;
-
-    cnn::real optimal_wgt = v_wgts[idx_wgt];
+    cnn::real optimal_wgt = grid_search(dev_set_rerank_scores);
 
     of << "optimal weight to IDF score is " << optimal_wgt << endl;
-    cout << "optimal weight to IDF score is " << optimal_wgt << endl;
 
     return true;
 }
