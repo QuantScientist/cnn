@@ -374,6 +374,28 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         else
             ptrTrainer->MERT_tune_edit_distance(model, hred, devel, vm["outputfile"].as<string>(), sd, weight_IDF);
     }
+    else if (vm.count("tunereranking") && devel.size() > 0 &&
+        vm["mmi-test"].as<bool>() && vm.count("anti-model-parameters") > 0)
+    {
+        Model anti_model;
+        string fname;
+        if (vm.count("anti-model-parameters") > 0){
+            fname = vm["anti-model-parameters"].as<string>();
+        }
+        else
+            throw("need to specify either parameters or initialise model file name");
+        rnn_t anti_procs(anti_model, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, 
+            (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, 
+            mem_slots, vm["scale"].as<cnn::real>());
+
+        load_cnn_model(fname, &anti_model);
+
+        if (vm.count("outputfile") == 0)
+        {
+            throw std::invalid_argument("missing recognition output file");
+        }
+        ptrTrainer->MERT_MMI_tune(hred, anti_procs, devel, vm["outputfile"].as<string>(), sd);
+    }
     else if (vm.count("testcorpus") && testcorpus.size() > 0 && !vm["ranker"].as<bool>())
     {
         if (vm.count("outputfile") == 0)
