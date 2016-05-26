@@ -236,6 +236,14 @@ vector<size_t> sort_indexes(const vector<T> &v) {
 
 void normalize(vector<cnn::real>& v);
 
+/// grid search to find optimal weight for interpolation 
+/// of the first and the second component using 
+/// ( 1 - weight ) * first_component + weight * second_component
+/// with a weight, a corresponding value is from the third component that corresponds to the argmax of the above weighted combination
+/// with all of the weights, the one with the maximum average value of the third component is returned as the weight 
+/// that achieves the maximum averaged third component
+cnn::real grid_search(const vector<vector<tuple<cnn::real, cnn::real, cnn::real>>>& dev_set_rerank_scores);
+
 /**
 using own thread to read data into a host memory
 */
