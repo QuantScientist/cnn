@@ -1920,6 +1920,53 @@ public:
         return vector<int>();
     }
 
+    std::vector<int> sample(const std::vector<int> &prv_context, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        const int sos_sym = tdict.Convert("<s>");
+        const int eos_sym = tdict.Convert("</s>");
+
+        std::vector<int> target;
+        target.push_back(sos_sym);
+
+        //  std::cerr << tdict.Convert(target.back());
+        int t = 0;
+
+        start_new_single_instance(prv_response, source, cg);
+
+        i_bias = parameter(cg, p_bias);
+        i_R = parameter(cg, p_R);
+
+        v_decoder_context.clear();
+        while (target.back() != eos_sym)
+        {
+            Expression i_y_t = decoder_single_instance_step(target.back(), cg);
+            Expression i_r_t = i_bias + i_R * i_y_t;
+            Expression ydist = softmax(i_r_t);
+
+            auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
+            unsigned w = sample_accoding_to_distribution_of(dist);
+            auto pr_w = dist[w];
+
+            // break potential infinite loop
+            if (t > 100) {
+                w = eos_sym;
+                pr_w = dist[w];
+            }
+
+            //        std::cerr << " " << tdict.Convert(w) << " [p=" << pr_w << "]";
+            t += 1;
+            target.push_back(w);
+        }
+
+        vector<Expression> v_t = decoder.final_s();
+
+        save_context(cg);
+
+        turnid++;
+
+        return target;
+    }
+
     std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");

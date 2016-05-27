@@ -222,6 +222,8 @@ public:
     void test(Model &model, Proc &am, TupleCorpus &devel, string out_file, Dict & sd, Dict & td);
     void testRanking(Model &, Proc &, Corpus &, Corpus &, string, Dict &, NumTurn2DialogId&, bool use_tfidf, int max_negative_samples);
     void MMI_test(Proc &am, Proc& anti_am, Corpus &devel, string out_file, Dict & sd);
+    void sample(Model &model, Proc &am, Corpus &devel, string out_file, Dict & sd);
+
 
     void dialogue(Model &model, Proc &am, string out_file, Dict & td);
 
@@ -635,6 +637,117 @@ void TrainProcess<AM_t>::test(Model &model, AM_t &am, Corpus &devel, string out_
             }
             
             bleuScore.AccumulateScore(sref, srec);                
+
+
+            if (turn_id > 0){
+                editDistScoreHyp.AccumulateScore(prv_response, srec);
+                editDistScoreRef.AccumulateScore(prv_response_ref, sref);
+            }
+
+            turn_id++;
+            prv_turn = turn;
+            prv_response = srec;
+            prv_response_ref = sref;
+        }
+    }
+
+    string sBleuScore = bleuScore.GetScore();
+    cout << "BLEU (4) score = " << sBleuScore << endl;
+    of << "BLEU (4) score = " << sBleuScore << endl;
+
+    pair<cnn::real, cnn::real> idf_score = idfScore.GetScore();
+    cout << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
+    of << "reference IDF = " << idf_score.first << " ; hypothesis IDF = " << idf_score.second << endl;
+
+    cnn::real edit_distance_score_ref = editDistScoreRef.GetScore();
+    cnn::real edit_distance_score_hyp = editDistScoreHyp.GetScore();
+    cout << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+    of << "average edit distance between two responses : reference: " << edit_distance_score_ref << " hypothesis: " << edit_distance_score_hyp << endl;
+
+    of.close();
+}
+
+/** 
+sample to generate data
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::sample(Model &model, AM_t &am, Corpus &devel, string out_file, Dict & sd)
+{
+    BleuMetric bleuScore;
+    bleuScore.Initialize();
+
+    /*cnn::real idf_weight = 0.1;
+    cnn::real edist_weight = 0.1;*/
+    IDFMetric idfScore(mv_idf);
+
+    EditDistanceMetric editDistScoreHyp;
+    EditDistanceMetric editDistScoreRef;
+
+    ofstream of(out_file);
+
+    Timer iteration("completed in");
+
+    for (auto diag : devel){
+
+        SentencePair prv_turn;
+        size_t turn_id = 0;
+
+        /// train on two segments of a dialogue
+        vector<int> res;
+        vector<vector<int>> res_kbest;
+        vector<string> prv_response;
+        vector<string> prv_response_ref;
+
+        am.reset();
+        for (auto spair : diag)
+        {
+            ComputationGraph cg;
+
+            SentencePair turn = spair;
+            vector<string> sref, srec;
+
+            priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
+
+            if (turn_id == 0)
+            {
+                res = am.sample(vector<int>(), turn.first, cg, sd);
+            }
+            else
+            {
+                res = am.sample(prv_turn.second, turn.first, cg, sd);
+            }
+
+            if (turn.first.size() > 0)
+            {
+                cout << "source: ";
+                for (auto p : turn.first){
+                    cout << sd.Convert(p) << " ";
+                }
+                cout << endl;
+            }
+
+            if (turn.second.size() > 0)
+            {
+                cout << "ref response: ";
+                for (auto p : turn.second){
+                    cout << sd.Convert(p) << " ";
+                    sref.push_back(sd.Convert(p));
+                }
+                cout << endl;
+            }
+
+            if (res.size() > 0)
+            {
+                cout << "res response: ";
+                for (auto p : res){
+                    cout << sd.Convert(p) << " ";
+                    srec.push_back(sd.Convert(p));
+                }
+                cout << endl;
+            }
+            idfScore.AccumulateScore(turn.second, res);
+            
+            bleuScore.AccumulateScore(sref, srec);
 
 
             if (turn_id > 0){

@@ -419,6 +419,8 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
 
             ptrTrainer->MMI_test(hred, anti_procs, testcorpus, vm["outputfile"].as<string>(), sd);
         }
+        else if (vm["sample"].as<bool>())
+            ptrTrainer->sample(model, hred, testcorpus, vm["outputfile"].as<string>(), sd);
         else
             ptrTrainer->test(model, hred, testcorpus, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
     }

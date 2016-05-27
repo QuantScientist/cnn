@@ -526,6 +526,18 @@ namespace cnn {
             return s2tmodel.decode(source, cur, cg, tdict);
         }
 
+        virtual std::vector<int> sample(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            s2tmodel.reset();  /// reset network
+            return s2tmodel.sample(vector<int>(), source, cg, tdict);
+        }
+
+        virtual std::vector<int> sample(const std::vector<int> &source, const std::vector<int>& cur, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            s2tmodel.assign_cxt(cg, 1);
+            return s2tmodel.sample(source, cur, cg, tdict);
+        }
+
         virtual std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
         {
             s2tmodel.reset();  /// reset network
