@@ -1590,3 +1590,61 @@ void normalize(vector<cnn::real>& v)
     for (auto &p : v)
         p = p / n;
 }
+
+/**
+grid search to get the optimal weight
+*/
+cnn::real grid_search(const vector<vector<tuple<cnn::real, cnn::real, cnn::real>>>& dev_set_rerank_scores)
+{
+    /// learn a weight to IDF score
+    vector<cnn::real> v_bleu_scores;
+    vector<cnn::real> v_wgts;
+    cnn::real max_bleu_score = -10000.0;
+    int idx_wgt = -1;
+    for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.05)
+    {
+        v_wgts.push_back(idf_wgt);
+
+        cnn::real avg_bleu_score = 0;
+        for (auto t : dev_set_rerank_scores)
+        {
+            cnn::real max_combine_score = -10000.0;
+            int idx = -1;
+            int k = 0;
+            for (auto c : t)
+            {
+                cnn::real lk = std::get<0>(c);
+                cnn::real idfscore = std::get<1>(c);
+                cnn::real this_score = (1.0 - idf_wgt) * lk + idf_wgt * idfscore;
+                if (max_combine_score < this_score)
+                {
+                    max_combine_score = this_score;
+                    idx = k;
+                }
+                k++;
+            }
+
+            if (idx >= 0)
+                avg_bleu_score += std::get<2>(t[idx]);
+            else
+                cerr << "warning no bleu scores " << endl;
+        }
+        v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
+
+        if (max_bleu_score < v_bleu_scores.back())
+        {
+            max_bleu_score = v_bleu_scores.back();
+            idx_wgt = v_bleu_scores.size() - 1;
+        }
+
+        cout << "w(" << idf_wgt << ") " << v_bleu_scores.back() << " ";
+    }
+    cout << endl;
+
+    cnn::real optimal_wgt = v_wgts[idx_wgt];
+
+    cout << "optimal weight to IDF score is " << optimal_wgt << endl;
+
+    return optimal_wgt;
+}
+
