@@ -1931,7 +1931,7 @@ public:
         //  std::cerr << tdict.Convert(target.back());
         int t = 0;
 
-        start_new_single_instance(prv_response, source, cg);
+        start_new_single_instance(prv_context, source, cg);
 
         i_bias = parameter(cg, p_bias);
         i_R = parameter(cg, p_R);
