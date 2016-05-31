@@ -897,9 +897,9 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> beam_search_results;
 
             if (turn_id == 0)
-	      res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
+	            res = am.beam_decode(turn.first, cg, beam_search_decode, sd);
             else
-	      res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
+	            res = am.beam_decode(prv_turn.second, turn.first, cg, beam_search_decode, sd);
 
             sref.clear();
             if (turn.second.size() > 0)
@@ -912,8 +912,8 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             if (rerankIDF > 0)
             {
                 beam_search_results = am.get_beam_decode_complete_list();
-		if (beam_search_results.empty())
-		  cerr << "beam search complete list is empty " << endl;
+		        if (beam_search_results.empty())
+		          cerr << "beam search complete list is empty " << endl;
 
                 /// averaged_log_likelihood , idf_score, bleu_score
                 /// the goal is to rerank using averaged_log_likelihood + weight * idf_score
@@ -979,19 +979,19 @@ bool TrainProcess<AM_t>::MERT_tune(Model &model, AM_t &am, Corpus &devel, string
             }
 
             if (idx >= 0)
-	      avg_bleu_score += std::get<2>(t[idx]);
-	    else
-	      cerr << "warning no bleu scores " << endl;
+	          avg_bleu_score += std::get<2>(t[idx]);
+	        else
+	          cerr << "warning no bleu scores " << endl;
         }
         v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
 
         if (max_bleu_score < v_bleu_scores.back())
         {
-	  max_bleu_score = v_bleu_scores.back();
-	  idx_wgt = v_bleu_scores.size() - 1;
+	      max_bleu_score = v_bleu_scores.back();
+	      idx_wgt = v_bleu_scores.size() - 1;
         }
 
-	cout << "w(" << idf_wgt << ") " << v_bleu_scores.back() << " "; 
+    	cout << "w(" << idf_wgt << ") " << v_bleu_scores.back() << " "; 
     }
     cout << endl;
 
