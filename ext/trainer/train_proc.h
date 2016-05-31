@@ -4147,7 +4147,10 @@ void TrainProcess<AM_t>::ngram_sampling(int sos_sym, int eos_sym, variables_map 
     std::vector<int> response;
     std::vector<string> str_response;
     BleuMetric bleuScore;
-    bleuScore.Initialize();
+    if (vm.count("ngram_order") > 0)
+        bleuScore.Initialize(vm);
+    else
+        bleuScore.Initialize();
 
     pnGram.Sampling(sos_sym, eos_sym, sd, response, str_response);
     string str = "hi , thanks for visiting answer desk ! i 'm xxpersonxx";
