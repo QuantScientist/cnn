@@ -57,7 +57,9 @@ In `src`, you need to first use [`cmake`](http://www.cmake.org/) to generate the
 
 To compile on Windows, use the introduction in the section "Building on Windows". To compile on Linux, run the following command
 
-    make -j 2
+    make -j 2 rnnlm2
+
+This will compile the example RNNLM2. To compile other examples, use corresponding example file names. 
 
 To see that things have built properly, you can run
 

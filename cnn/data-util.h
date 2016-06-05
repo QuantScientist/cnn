@@ -13,6 +13,11 @@
 #include "cnn/expr.h"
 #include "cnn/dict.h"
 #include <boost/program_options/variables_map.hpp>
+#include <boost/thread.hpp>
+#include <fstream>
+#include <random>
+#include <iterator>
+#include <random>
 
 using namespace cnn;
 using namespace std;
@@ -25,6 +30,7 @@ typedef vector<FCorpus*>  FCorpusPointers;
 
 typedef vector<int> Sentence;
 typedef vector<Sentence> Sentences;
+typedef vector<Sentences> CandidateSentencesList;
 typedef pair<Sentence, Sentence> SentencePair;
 typedef vector<SentencePair> Dialogue;
 typedef vector<Dialogue> Corpus;
@@ -109,7 +115,8 @@ Expression vec2exp(const vector<cnn::real>& v_data, ComputationGraph& cg);
 //////////////////////////////////////////////////////////////////////////////////////////////
 
 /// padding with eos symbol
-PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol);
+PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol, const std::vector<bool>& padding_to_back);
+Sentences padding_with_eos(const Sentences& v_sent, int padding_symbol, bool  padding_to_the_back);
 
 /// return the index of the selected dialogues
 vector<int> get_same_length_dialogues(Corpus corp, int nbr_dialogues, size_t &min_nbr_turns, vector<bool>& used, PDialogue& selected, NumTurn2DialogId& info);
@@ -194,3 +201,88 @@ std::string builder_flavour(variables_map vm);
 
 /// remove the firest and the last element
 vector<int> remove_first_and_last(const vector<int>& rep);
+
+///
+bool is_nan(const cnn::real & value);
+
+void display_value(int n, const cnn::real* val, string str);
+
+/// find if there is nan
+void check_value(int n, const cnn::real* val, string str);
+
+/// get the size of data
+long get_file_size(std::string filename);
+
+/// get a vector of responses, and theses responses can be the negative candidates
+/// for ranking experiments
+Sentences get_all_responses(Corpus &training);
+
+CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long& rand_pos, int max_number_of_negative_samples);
+
+/// sort with index
+template <typename T>
+vector<size_t> sort_indexes(const vector<T> &v) {
+
+    // initialize original index locations
+    vector<size_t> idx(v.size());
+    for (size_t i = 0; i != idx.size(); ++i) idx[i] = i;
+
+    // sort indexes based on comparing values in v
+    sort(idx.begin(), idx.end(),
+        [&v](size_t i1, size_t i2) {return v[i1] > v[i2]; });
+
+    return idx;
+};
+
+void normalize(vector<cnn::real>& v);
+
+/// grid search to find optimal weight for interpolation 
+/// of the first and the second component using 
+/// ( 1 - weight ) * first_component + weight * second_component
+/// with a weight, a corresponding value is from the third component that corresponds to the argmax of the above weighted combination
+/// with all of the weights, the one with the maximum average value of the third component is returned as the weight 
+/// that achieves the maximum averaged third component
+cnn::real grid_search(const vector<vector<tuple<cnn::real, cnn::real, cnn::real>>>& dev_set_rerank_scores);
+
+/**
+using own thread to read data into a host memory
+*/
+class DataReader{
+private : 
+    std::stringstream m_ifs;
+    string        m_Filename; /// the file name
+    Corpus        m_Corpus;   /// the corpsu;
+    char         *m_temp;     /// temp char space
+
+public:
+    DataReader(const string& train_filename)
+    {
+        m_Filename = train_filename; 
+        long lfsize = get_file_size(train_filename);
+        m_temp = new char[lfsize];
+
+        ifstream ifs;
+        ifs.open(train_filename, ifstream::binary);
+        ifs.read(m_temp, lfsize);
+        ifs.close();
+
+        m_ifs << m_temp;
+    }
+
+    ~DataReader() { if (m_temp) delete m_temp; }
+
+    void read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size);
+
+    void restart()
+    {
+        m_ifs.str("");
+        m_ifs.clear();
+        
+        m_ifs << m_temp; 
+    }
+
+    Corpus corpus()
+    {
+        return m_Corpus;
+    }
+};

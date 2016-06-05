@@ -69,7 +69,7 @@ namespace cnn {
         // call this before add_input and after new_graph,
         // when starting a new sequence on the same hypergraph.
         // h_0 is used to initialize hidden layers at timestep 0 to given values
-        void start_new_sequence(const std::vector<Expression>& h_0 = {}) {
+        void start_new_sequence(const std::vector<Expression>&  = {}) {
         }
 
 

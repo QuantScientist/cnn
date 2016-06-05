@@ -10,6 +10,10 @@ CMakeCache.txt
 CMakeFiles
 cmake_install.cmake
 
+# build
+msbuild
+msbuildcuda
+
 # binaries
 examples/embed-cl
 examples/encdec
@@ -46,6 +50,10 @@ examples/nlm
 *.exe
 *.out
 *.app
+
+#bak file
+*.bak
+*.bk
 
 .RData
 .RHistory

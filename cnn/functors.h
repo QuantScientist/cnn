@@ -2,6 +2,7 @@
 #define CNN_GPU_FUNCTORS_H
 
 #include <cstdint>
+#include <cnn/macros.h>
 using namespace std;
 #if HAVE_CUDA
 #define CNN_DEVICE_FUNC __device__
@@ -37,38 +38,16 @@ static inline ElemType fastpow2 (ElemType p) {
   return v.f;
 }
 
-#if 1
-#if 0
-static inline cnn::real fastexp (cnn::real p) {
-  return fastpow2 (1.442695040f * p);
+static CNN_DEVICE_FUNC inline cnn::real fastexp(cnn::real p) {
+    return (sizeof(cnn::real) == sizeof(float)) ? expf(p) : exp(p);
 }
-#else
-template<class ElemType>
-static inline ElemType fastexp (ElemType p) {
-  return exp(p);
-}
-#endif
-#else
-// Schraudolph version, but it's a bit crappy in terms of
-// performance and not that much faster
-#define EXPAF (8388608 / 0.6931471806f)
-static inline cnn::real fastexp (cnn::real p) {
-  union { cnn::real f; int32_t i; } eco;
-  eco.i = (int32_t)(EXPAF * (p)) + 1065353216;
-  return eco.f;
-}
-#endif
+
+#define CNN_EXPF fastexp
 
 #if defined(__GNU_LIBRARY__) && (__GLIBC__ == 2) && (__GLIBC_MINOR__ < 14) && !defined(HAVE_CUDA)
 #define USE_FASTEXP
 #else
 #undef USE_FASTEXP
-#endif
-
-#ifdef USE_FASTEXP
-#define CNN_EXPF fastexp
-#else
-#define CNN_EXPF expf
 #endif
 
 namespace cnn {
@@ -152,6 +131,14 @@ struct FConstantMinus {
   cnn::real c;
 };
 
+struct FConstATimesXPlusConstB {
+    FConstATimesXPlusConstB(cnn::real a, cnn::real b) : a(a), b(b) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        return b + a*x;
+    }
+    cnn::real a, b;
+};
+
 struct FCopy {
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
         return x;
@@ -178,7 +165,7 @@ struct FTanh {
     cnn::real b = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
     return a / b;
 #else
-    return tanhf(x);
+    return (sizeof(cnn::real) == sizeof(float))?tanhf(x):tanh(x);
 #endif
   }
 };
@@ -223,9 +210,17 @@ struct FPairwiseRankLoss {
 };
 
 struct FRectifyBackward {
-  CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &t, const cnn::real &d) const {
-    return (t) ? d : 0.f;
-  }
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &t, const cnn::real &d) const {
+        return (t > 0) ? d : 0.f;
+    }
+};
+
+struct FExponentialLinearUnitsBackward {
+    FExponentialLinearUnitsBackward(cnn::real m) : a(m) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &t, const cnn::real &d) const {
+        return (t > 0) ? d : d * (t + a);
+    }
+    cnn::real a; /// scale in the negative input part
 };
 
 struct FRectifyNegateBackward {
@@ -237,7 +232,7 @@ struct FRectifyNegateBackward {
 struct FSoftmaxNormalize {
   explicit FSoftmaxNormalize(cnn::real logz) : logz(logz) {}
   CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
-    return CNN_EXPF(x - logz);
+    return fastexp(x - logz);
   }
   cnn::real logz;
 };
@@ -295,17 +290,23 @@ struct FWeightedError {
 struct FLogSoftmaxBackward {
   explicit FLogSoftmaxBackward(cnn::real off_diag_sum) : off_diag_sum(off_diag_sum) {}
   CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &t, const cnn::real &d) const {
-      //return off_diag_sum * CNN_EXPF(t) + d;
-      return off_diag_sum * exp(t) + d;
-      //return (off_diag_sum + d) * t;
-  }
+      return off_diag_sum * fastexp(t) + d;
+   }
   cnn::real off_diag_sum;
 };
 
 struct FRectify {
-  CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
-    return (x > 0.f) ? x : 0.f;
-  }
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        return (x > 0.f) ? x : 0.f;
+    }
+};
+
+struct FExponentialLinearUnits {
+    explicit FExponentialLinearUnits(cnn::real scale) : a(scale) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        return (x > 0.f) ? x : a * (exp(x) - 1.0f);
+    }
+    cnn::real a; /// scale in the negative input part
 };
 
 struct FSoftSign {
@@ -323,7 +324,7 @@ struct FSoftSignBackward {
 
 struct FLogisticSigmoid {
   CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
-    return 1.f / (1.f + CNN_EXPF(-x));
+      return 1.f / (1.f + CNN_EXPF(-x));
   }
 };
 
@@ -342,13 +343,14 @@ struct FSqDist {
 
 struct FExp {
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
-        return exp(x);
+        return CNN_EXPF(x); 
     }
 };
 
 struct FLog {
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
-        return log(x);
+        if (x < 1e-25) return LZERO;
+        return (sizeof(cnn::real) == sizeof(float)) ? logf(x) : log(x);
     }
 };
 
@@ -368,6 +370,32 @@ struct FL2SGDUpdate {
     }
     cnn::real lambda;
     cnn::real scale;
+};
+
+/// use pointer as arguments
+struct FL2SGDUpdatePtrArguments {
+    FL2SGDUpdatePtrArguments(cnn::real *l, cnn::real *s) : lambda(l), scale(s) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x, const cnn::real &g) const {
+        return - x * (*lambda) - (*scale) * g;
+    }
+    cnn::real *lambda;
+    cnn::real *scale;
+};
+
+/// update with denominator of scale computed in this function
+struct FL2SGDMomentumWithDenUpdate {
+    FL2SGDMomentumWithDenUpdate(cnn::real *gs, cnn::real l, cnn::real s, cnn::real m, cnn::real eps) : lambda(l), scale(-s), momentum(m), epsilon(eps), gscale(gs) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real& r, const cnn::real &x, const cnn::real &g, cnn::real &v) {
+        cnn::real den = r + epsilon;
+        den = (sizeof(cnn::real) == sizeof(float)) ? sqrtf(den) : sqrt(den);
+        v = momentum * v + scale * (*gscale) / den * g;
+        return v - x * lambda;
+    }
+    cnn::real lambda;
+    cnn::real scale;
+    cnn::real momentum;
+    cnn::real epsilon;
+    cnn::real* gscale;
 };
 
 struct FL2SGDMomentumUpdate {
@@ -390,12 +418,12 @@ struct FBinaryLogLoss {
     }
     else if (x_true == 0.f) {
       if (x == 1.f) x_tmp = CNN_DEVICE_MIN;
-      return (x_true - 1.f) * log1p(-x_tmp);
+      return (x_true - 1.f) * log1pf(-x_tmp);
     }
     else {
       if (x == 0.f) x_tmp = CNN_DEVICE_MIN;
       if (x == 1.f) x_tmp = CNN_DEVICE_MIN;
-      return -1.f * (x_true * log(x_tmp) + (1.f - x_true) * log1p(-x_tmp));
+      return -1.f * (x_true * log(x_tmp) + (1.f - x_true) * log1pf(-x_tmp));
     }
   }
 };
@@ -499,6 +527,21 @@ void softmax(int row, int col, const ElemType* a, ElemType* v, const bool isColW
         throw("not supported for row-major");
     }
 }
+
+/// clipping if absolute value is larger than a thrsehold
+struct FAbsClipping{
+    FAbsClipping(cnn::real c) : c(c) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        if (fabs(x) > c){
+            if (x > 0) return c;
+            else return -c;
+        }
+        else
+            return x;
+    }
+    cnn::real c;
+};
+
 
 } // namespace cnn
 

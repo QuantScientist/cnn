@@ -72,7 +72,7 @@ protected:
     vector<Expression> to_cxt;  /// this is the final_s from decoder RNNm
 
     map<int, vector<vector<cnn::real>>> to_cxt_value; /// memory of to_cxt
-    vector<vector<cnn::real>> last_cxt_s;  /// memory of context history for LSTM including h and c, use this for initialization of intent RNN
+    vector<cnn::real*> last_cxt_s;  /// memory of context history for LSTM including h and c, use this for initialization of intent RNN
     vector<vector<cnn::real>> last_decoder_s;  /// memory of target side decoder history for LSTM including h and c, use this for initialization of source side RNN
     vector<Expression> last_context_exp;  /// expression to the last context hidden state
 
@@ -80,6 +80,10 @@ protected:
 
     unsigned int nutt; // for multiple training utterance per inibatch
     vector<cnn::real> zero;
+
+protected:
+    cnn::real * m_pined_memory; /// memory for serialization either on device or on host
+
 public:
     /// for criterion
     vector<Expression> v_errs;
@@ -106,7 +110,7 @@ public:
             throw("wrong dimension of encoder and decoder layer. they should be the same, as they use the same lookup table");
         }
 
-        p_cs = model.add_lookup_parameters(vocab_size_src, { hidden_dim[ENCODER_LAYER] }, iscale);
+        p_cs = model.add_lookup_parameters(vocab_size_src, { hidden_dim[EMBEDDING_LAYER] }, iscale);
         p_R = model.add_parameters({ vocab_size_tgt, hidden_dim[DECODER_LAYER] }, iscale);
         p_bias = model.add_parameters({ vocab_size_tgt}, iscale);
 
@@ -122,9 +126,21 @@ public:
         p_cxt2dec_w = model.add_parameters({ hidden_dim[DECODER_LAYER], hidden_dim[INTENTION_LAYER] }, iscale);
 
         i_h0.clear();
+
+        m_pined_memory = static_cast<cnn::real*>(cnn_mm_malloc(pin_memory_size(), sizeof(cnn::real)));
+
     };
 
-    ~DialogueBuilder(){};
+    ~DialogueBuilder(){
+        cnn_mm_free(m_pined_memory);
+    };
+
+    int pin_memory_size()
+    {
+        /// 4 layers, 500 dimension and 20 sentences
+        /// this is the maximum size in byte for a pined memory
+        return 4*500*20 * sizeof(cnn::real);
+    }
 
     /// for context
     void reset()
@@ -181,51 +197,45 @@ public:
         return i_x_t;
     }
 
-    void serialise_context(ComputationGraph& cg,
-        vector<vector<cnn::real>>& v_last_cxt_s,
-        vector<vector<cnn::real>>& v_last_decoder_s)
+    void serialise(ComputationGraph& cg, Builder& combiner)
     {
-        /// get the top output
-        vector<vector<cnn::real>> vm;
-
-        vm.clear();
-        for (const auto &p : context.final_s())
+        int stt = 0;
+        last_cxt_s.clear();
+        for (const auto &p : combiner.final_s())
         {
-            vm.push_back(get_value(p, cg));
+            Tensor tv = cg.get_value(p);
+#ifdef HAVE_CUDA
+            cudaMemcpyAsync(m_pined_memory + stt, tv.v, sizeof(cnn::real) * tv.d.size(), cudaMemcpyDeviceToDevice);
+#else
+            memcpy(m_pined_memory + stt, tv.v, sizeof(cnn::real) * tv.d.size());
+#endif
+            last_cxt_s.push_back(m_pined_memory + stt);
+
+            stt += tv.d.size();
+
+            if (stt * sizeof(cnn::real) > pin_memory_size())
+                runtime_error("serialised data size is larger than the allocated pined memory size");
         }
-        last_cxt_s = vm;
-        v_last_cxt_s = last_cxt_s;
+    }
 
-        if (v_decoder_context.size() == 0)
-            return;
+    /// serialise to an external memory
+    void serialise_cxt_to_external_memory(ComputationGraph& cg, Builder& combiner, vector<vector<cnn::real>> & ext_memory)
+    {
+        serialise(cg, combiner);
 
-        vector<vector<cnn::real>> v_last_d;
-        unsigned int nutt = v_decoder_context.size();
-        size_t ndim = v_decoder_context[0].size();
-        v_last_d.resize(ndim);
-
-        size_t ik = 0;
-        for (const auto &p : v_decoder_context)
+        int stt = 0;
+        ext_memory.clear();
+        for (const auto &p : combiner.final_s())
         {
-            /// for each utt
-            vm.clear();
-            for (const auto &v : p)
-                vm.push_back(get_value(v, cg));
-
-            size_t iv = 0;
-            for (auto p : vm)
-            {
-                if (ik == 0)
-                {
-                    v_last_d[iv].resize(nutt * p.size());
-                }
-                std::copy_n(p.begin(), p.size(), &v_last_d[iv][ik * p.size()]);
-                iv++;
-            }
-            ik++;
+            Tensor tv = cg.get_value(p);
+            vector<cnn::real> tmp(tv.d.size());
+#ifdef HAVE_CUDA
+            cudaMemcpyAsync(&tmp[0], tv.v, sizeof(cnn::real) * tv.d.size(), cudaMemcpyDeviceToHost);
+#else
+            memcpy(&tmp[0], tv.v, sizeof(cnn::real) * tv.d.size());
+#endif
+            ext_memory.push_back(tmp);
         }
-        last_decoder_s = v_last_d;
-        v_last_decoder_s = last_decoder_s;
     }
 
     /**
@@ -238,15 +248,9 @@ public:
     void serialise_context(ComputationGraph& cg)
     {
         /// get the top output
+        serialise(cg, context);
+
         vector<vector<cnn::real>> vm;
-
-        vm.clear();
-        for (const auto &p : context.final_s())
-        {
-            vm.push_back(get_value(p, cg));
-        }
-        last_cxt_s = vm;
-
         if (v_decoder_context.size() == 0)
             return;
 
@@ -278,14 +282,23 @@ public:
         last_decoder_s = v_last_d;
     }
 
+    /// serialise the context to external memory in CPU
+    void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
+    {
+        serialise_cxt_to_external_memory(cg, context, ext_memory);
+    }
+
     /**
     organize the context from decoder
     data is organized in v_decoder_context as [nutt][replicate_hidden_layers]
     after this process, to_cxt will be organized as [replicate_hidden_layers][nutt] 
     */
-    void save_context(ComputationGraph& cg)
+    void save_context(ComputationGraph& )
     {
         to_cxt.clear();
+        if (v_decoder_context.size() == 0)
+            return;
+
         vector<Expression> ve;
         vector<vector<Expression>> vve;
         size_t ndim = v_decoder_context[0].size();
@@ -306,7 +319,7 @@ public:
 
     void assign_cxt(ComputationGraph &cg, unsigned int nutt)
     {
-        if (turnid <= 0 || last_cxt_s.size() == 0 || last_decoder_s.size() == 0)
+        if (turnid <= 0 || last_cxt_s.size() == 0)
         {
             /// no information from previous turns
             reset();
@@ -314,13 +327,13 @@ public:
         }
 
         last_context_exp.clear();
-        for (const auto &p : last_cxt_s)
+        for (const auto p : last_cxt_s)
         {
             Expression iv;
             if (nutt > 1)
-                iv = input(cg, { (unsigned int)p.size() / nutt, nutt}, &p);
+                iv = reference(cg, { (unsigned int)hidden_dim[INTENTION_LAYER], nutt }, p);
             else
-                iv = input(cg, { (unsigned int)p.size() }, &p);
+                iv = reference(cg, { (unsigned int)hidden_dim[INTENTION_LAYER] }, p);
             last_context_exp.push_back(iv);
         }
 
@@ -345,64 +358,31 @@ public:
         v_errs.clear();
         tgt_words = 0;
         src_words = 0;
-
     }
 
-    /**
-    assign observation to the hidden latent varaible
-
-    @v_last_cxt_s [parameter_index][values vector for this parameter]. this is to the context or intention network
-    @v_last_decoder_s [parameter_index][values vector for this parameter]. this is to the decoder network
-    */
-    void assign_cxt(ComputationGraph &cg, unsigned int nutt,
-        vector<vector<cnn::real>>& v_last_cxt_s, 
-        vector<vector<cnn::real>>& v_last_decoder_s)
+    void copy_external_memory_to_cxt(ComputationGraph &cg, unsigned int nutt,
+        const std::vector<std::vector<cnn::real>>& v_last_cxt_s)
     {
-        if (turnid <= 0 || v_last_cxt_s.size() == 0 || v_last_decoder_s.size() == 0)
+        int stt = 0;
+        last_cxt_s.clear();
+
+        for (int l = 0; l < v_last_cxt_s.size(); l++)
         {
-            /// no information from previous turns
-            reset();
-            return;
+            int row = v_last_cxt_s[l].size() / nutt;
+
+            last_cxt_s.push_back(m_pined_memory + stt);
+
+            stt += v_last_cxt_s[l].size();
+
+            if (stt * sizeof(cnn::real) > pin_memory_size())
+                runtime_error("copy_external_memory_to_cxt data size is larger than the allocated pined memory size");
+
+#ifdef HAVE_CUDA
+            CUDA_CHECK(cudaMemcpy(last_cxt_s[l], &v_last_cxt_s[l][0], sizeof(cnn::real) * v_last_cxt_s[l].size(), cudaMemcpyHostToDevice));
+#else
+            memcpy(last_cxt_s[l], &v_last_cxt_s[l][0], sizeof(cnn::real) * v_last_cxt_s[l].size()); 
+#endif
         }
-
-        last_context_exp.clear();
-        for (const auto &p : v_last_cxt_s)
-        {
-            Expression iv;
-            if (nutt > 1)
-                iv = input(cg, { (unsigned int) p.size() / nutt, nutt }, &p);
-            else
-                iv = input(cg, { (unsigned int) p.size() }, &p);
-            last_context_exp.push_back(iv);
-        }
-
-        vector<Expression> v_last_d;
-        for (const auto &p : v_last_decoder_s)
-        {
-            Expression iv;
-            if (nutt > 1)
-                iv = input(cg, { (unsigned int) p.size() / nutt, nutt }, &p);
-            else
-                iv = input(cg, { (unsigned int)p.size() }, &p);
-            v_last_d.push_back(iv);
-        }
-
-        to_cxt = v_last_d;
-
-        /// prepare for the next run
-        v_encoder_bwd.clear();
-        v_encoder_fwd.clear();
-        v_decoder.clear();
-        i_h0.clear();
-        v_errs.clear();
-        tgt_words = 0;
-        src_words = 0;
-
-    }
-
-    void assign_cxt(ComputationGraph &cg, unsigned int nutt,
-        std::vector<std::vector<std::vector<cnn::real>>>& v_last_cxt_s)
-    {
     }
 
     void assign_cxt(ComputationGraph &cg,
@@ -463,6 +443,53 @@ public:
         return target;
     }
 
+    std::vector<int> sample(const std::vector<int> &prv_context, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        const int sos_sym = tdict.Convert("<s>");
+        const int eos_sym = tdict.Convert("</s>");
+
+        std::vector<int> target;
+        target.push_back(sos_sym);
+
+        //  std::cerr << tdict.Convert(target.back());
+        int t = 0;
+
+        start_new_single_instance(source, cg);
+
+        i_bias = parameter(cg, p_bias);
+        i_R = parameter(cg, p_R);
+
+        v_decoder_context.clear();
+        while (target.back() != eos_sym)
+        {
+            Expression i_y_t = decoder_single_instance_step(target.back(), cg);
+            Expression i_r_t = i_bias + i_R * i_y_t;
+            Expression ydist = softmax(i_r_t);
+
+            auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
+            unsigned w = sample_accoding_to_distribution_of(dist);
+            auto pr_w = dist[w];
+
+            // break potential infinite loop
+            if (t > 100) {
+                w = eos_sym;
+                pr_w = dist[w];
+            }
+
+            //        std::cerr << " " << tdict.Convert(w) << " [p=" << pr_w << "]";
+            t += 1;
+            target.push_back(w);
+        }
+
+        vector<Expression> v_t = decoder.final_s();
+
+        save_context(cg);
+
+        turnid++;
+
+        return target;
+    }
+
     /// return [nutt][decoded_results]
     std::vector<Sentence> batch_decode(const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
@@ -475,7 +502,6 @@ public:
         int t = 0;
 
         start_new_instance(source, cg);
-        cg.incremental_forward();
 
         Expression i_bias = parameter(cg, p_bias);
         Expression i_R = parameter(cg, p_R);
@@ -489,7 +515,7 @@ public:
         {
             Expression i_y_t = decoder_step(vtmp, cg);
             Expression i_r_t = reshape(i_R * i_y_t, { nutt * vocab_size_tgt });
-            cg.incremental_forward();
+
             need_decode = false;
             vtmp.clear();
             for (size_t k = 0; k < nutt; k++)
@@ -533,13 +559,6 @@ public:
 
         return target;
     }
-
-    std::vector<int> decode_tuple(const SentenceTuple&source, ComputationGraph& cg, cnn::Dict  &sdict, cnn::Dict  &tdict)
-    {
-        vector<int> vres;
-        throw("not implemented");
-        return vres;
-    };
 
  public:
      /// run in batch with multiple sentences
@@ -609,8 +628,8 @@ public:
              v_decoder.back()->start_new_sequence(i_h0);
      };
 
-     void start_new_instance(const std::vector<std::vector<int>> &source,
-         const std::vector<std::vector<int>> &prv_response,
+     void start_new_instance(const std::vector<std::vector<int>> &prv_response,
+         const std::vector<std::vector<int>> &source,
          ComputationGraph &cg)
      {}
 
@@ -699,7 +718,6 @@ public:
          }
          else
              context.add_input(q_m);
-         cg.incremental_forward();
 
          save_context(cg);
 
@@ -719,88 +737,17 @@ public:
          return verr;
      }
 
-     /*
-     Expression build_graph_target_source(const std::vector<std::vector<int>> &source, const std::vector<std::vector<int>>& osent, ComputationGraph &cg){
-         return build_graph(source, osent, cg, &t2s_encoder_fwd, &t2s_encoder_bwd, &context, &t2s_decoder);
-     }
-
-     Expression build_graph(const std::vector<std::vector<int>> &source, const std::vector<std::vector<int>>& osent, ComputationGraph &cg,
-         Builder* encoder_fwd, Builder* encoder_bwd,
-         Builder * context,
-         Builder *decoder)
-     {
-         unsigned int nutt;
-         start_new_instance(source, cg, encoder_fwd, encoder_bwd, context, decoder);
-
-         // decoder
-         vector<Expression> errs;
-
-         Expression i_R = parameter(cg, p_R); // hidden -> word rep parameter
-         Expression i_bias = parameter(cg, p_bias);  // word bias
-
-         nutt = osent.size();
-
-         int oslen = 0;
-         for (auto p : osent)
-             oslen = (oslen < p.size()) ? p.size() : oslen;
-
-         Expression i_bias_mb = concatenate_cols(vector<Expression>(nutt, i_bias));
-
-         v_decoder_context.clear();
-         v_decoder_context.resize(nutt);
-         for (int t = 0; t < oslen; ++t) {
-             vector<int> vobs;
-             for (auto p : osent)
-             {
-                 if (t < p.size())
-                     vobs.push_back(p[t]);
-                 else
-                     vobs.push_back(-1);
-             }
-             Expression i_y_t = decoder_step(vobs, cg, decoder);
-             Expression i_r_t = i_bias_mb + i_R * i_y_t;
-             cg.incremental_forward();
-
-             Expression x_r_t = reshape(i_r_t, { vocab_size * nutt });
-             for (size_t i = 0; i < nutt; i++)
-             {
-                 if (t < osent[i].size() - 1)
-                 {
-                     /// only compute errors on with output labels
-                     Expression r_r_t = pickrange(x_r_t, i * vocab_size, (i + 1)*vocab_size);
-                     Expression i_ydist = log_softmax(r_r_t);
-                     errs.push_back(pick(i_ydist, osent[i][t + 1]));
-                 }
-                 else if (t == osent[i].size() - 1)
-                 {
-                     /// get the last hidden state to decode the i-th utterance
-                     vector<Expression> v_t;
-                     for (auto p : decoder->final_s())
-                     {
-                         Expression i_tt = reshape(p, { nutt * hidden_dim });
-                         int stt = i * hidden_dim;
-                         int stp = stt + hidden_dim;
-                         Expression i_t = pickrange(i_tt, stt, stp);
-                         v_t.push_back(i_t);
-                     }
-                     v_decoder_context[i] = v_t;
-                 }
-             }
-         }
-
-         save_context(cg);
-
-         Expression i_nerr = sum(errs);
-
-         turnid++;
-         return -i_nerr;
-     };
-*/
-
-protected:
+ protected:
 
     virtual Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg) = 0;
-    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg) 
+    virtual Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg, RNNPointer *prev_state) = 0;
+    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg, RNNPointer *prev_state)
+    {
+        vector<int> input(1, trg_tok);
+        return decoder_step(input, cg, prev_state);
+    }
+
+    Expression decoder_single_instance_step(int trg_tok, ComputationGraph& cg)
     {
         vector<int> input(1, trg_tok);
         return decoder_step(input, cg);

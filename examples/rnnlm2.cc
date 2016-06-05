@@ -11,6 +11,7 @@
 #include "cnn/cnn-helper.h"
 #include "cnn/expr-xtra.h"
 #include "cnn/grad-check.h"
+#include "cnn/math.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -51,7 +52,7 @@ struct RNNLanguageModel {
 
   // return Expression of total loss
   Expression BuildLMGraph(const vector<int>& sent, ComputationGraph& cg) {
-    const unsigned slen = sent.size() - 1;
+    const unsigned slen = (unsigned int) sent.size() - 1;
     if (verbose)
         cout << "start building builder graph" << endl;
     builder.new_graph(cg);  // reset RNN builder for new graph
@@ -148,7 +149,7 @@ void train(Model &model, LM_t &lm,
     cnn::real best = 9e+99;
     unsigned report_every_i = 50;
     unsigned dev_every_i_reports = 500;
-    unsigned si = training.size();
+    unsigned si = (unsigned int) training.size();
     vector<unsigned> order(training.size());
     for (unsigned i = 0; i < order.size(); ++i) order[i] = i;
     bool first = true;

@@ -7,9 +7,11 @@
 
 namespace cnn {
 
+typedef enum { simple_clipping = 0, norm_clipping = 1 } t_gradient_clipping;
 struct Trainer {
   explicit Trainer(Model* m, cnn::real lam, cnn::real e0) :
-    eta0(e0), eta(e0), eta_decay(), epoch(), lambda(lam), clipping_enabled(true), clip_threshold(5), clips(), updates(), model(m) {}
+  eta0(e0), eta(e0), eta_decay(), epoch(), lambda(lam), clipping_enabled(true), clip_threshold(5), clips(), updates(), model(m), clipping_type(norm_clipping) {
+  }
   virtual ~Trainer();
 
   virtual void update(cnn::real nutt = 1.0, cnn::real scale = 1.0) = 0;
@@ -24,6 +26,7 @@ struct Trainer {
   @nutt: proportional to the number of utterances trained in parallel
   */
   cnn::real clip_gradients(cnn::real nutt = 1.0);
+  cnn::real clip_gradients(cnn::real samples, cnn::real pre_compued_grd_norm);
 
   // learning rates
   cnn::real eta0;
@@ -38,6 +41,8 @@ struct Trainer {
   cnn::real clip_threshold;
   cnn::real clips;
   cnn::real updates;
+
+  t_gradient_clipping clipping_type; 
 
   void status() {
     std::cerr << "[epoch=" << epoch << " eta=" << eta << " clips=" << clips << " updates=" << updates << "] ";
@@ -111,6 +116,10 @@ struct RmsPropTrainer : public Trainer {
     Trainer(m, lam, e0), epsilon(eps), rho(rho), shadow_params_allocated(false) {}
   void update(cnn::real nutt, cnn::real scale = 1.0) override;
 
+  void compute_gradient_norm(
+      std::vector<Parameters*> plist, std::vector<cnn::real>& vpgrd_norm,
+      std::vector<LookupParameters*> llist, std::vector<cnn::real>& vl_grd_norm);
+
   cnn::real epsilon;
   cnn::real rho;
   bool shadow_params_allocated;
@@ -122,9 +131,9 @@ struct RmsPropTrainer : public Trainer {
 In some cases, adding a momentum term β is beneficial. Here, Nesterov momentum is used:
 See descriptions in http://climin.readthedocs.org/en/latest/rmsprop.html
 */
-struct RmsPropWithMomentumTrainer : public Trainer {
+struct RmsPropWithMomentumTrainer : public RmsPropTrainer {
     explicit RmsPropWithMomentumTrainer(Model* m, cnn::real lam = 1e-6, cnn::real e0 = 0.1, cnn::real eps = 1e-20, cnn::real rho = 0.95, cnn::real mom = 0.9) :
-        Trainer(m, lam, e0), epsilon(eps), rho(rho), shadow_params_allocated(false), momentum(mom) {}
+        RmsPropTrainer(m, lam, e0), epsilon(eps), rho(rho), shadow_params_allocated(false), momentum(mom) {}
     void update(cnn::real nutt, cnn::real scale = 1.0) override;
 
     cnn::real epsilon;
@@ -139,20 +148,46 @@ struct RmsPropWithMomentumTrainer : public Trainer {
     std::vector<ShadowLookupParameters> vlp;
 };
 
+/**
+a GPU version of RMSpropwithmomentum 
+In some cases, adding a momentum term β is beneficial. Here, Nesterov momentum is used:
+See descriptions in http://climin.readthedocs.org/en/latest/rmsprop.html
+*/
+struct RmsPropWithMomentumTrainerGPU: public Trainer {
+    explicit RmsPropWithMomentumTrainerGPU(Model* m, cnn::real lam = 1e-6, cnn::real e0 = 0.1, cnn::real eps = 1e-20, cnn::real rho = 0.95, cnn::real mom = 0.9) :
+    Trainer(m, lam, e0), epsilon(eps), rho(rho), shadow_params_allocated(false), momentum(mom) {}
+    void update(cnn::real nutt, cnn::real scale = 1.0) override;
+
+    void compute_gradient_norm(
+        std::vector<Parameters*> plist, cnn::real *ptr_gnorm, int size_ptr_gnorm,
+        std::vector<LookupParameters*> llist, cnn::real *ptr_gnorm_lookup, int size_ptr_gnorm_lookup);
+
+    cnn::real epsilon;
+    cnn::real rho;
+    bool shadow_params_allocated;
+    cnn::real* hg; // History of gradients
+    std::vector<cnn::real*> hlg;
+
+    cnn::real momentum;
+    // the following represent the current velocity
+    std::vector<ShadowParameters> vp;
+    std::vector<ShadowLookupParameters> vlp;
+};
+
 struct AdamTrainer : public Trainer {
-  explicit AdamTrainer(Model* m, cnn::real lambda = 1e-6, cnn::real alpha = 0.001, cnn::real beta_1 = 0.9, cnn::real beta_2 = 0.999, cnn::real eps = 1e-8) :
+    explicit AdamTrainer(Model* m, cnn::real lambda = 1e-6, cnn::real alpha = 0.001, cnn::real beta_1 = 0.9, cnn::real beta_2 = 0.999, cnn::real eps = 1e-8) :
     Trainer(m, lambda, alpha), beta_1(beta_1), beta_2(beta_2), eps(eps), shadow_params_allocated(false) {}
 
-  void update(cnn::real nutt, cnn::real scale = 1.0) override;
+    void update(cnn::real nutt, cnn::real scale = 1.0) override;
 
-  cnn::real beta_1;
-  cnn::real beta_2;
-  cnn::real eps;
-  bool shadow_params_allocated;
-  std::vector<ShadowParameters> m; // History of gradients
-  std::vector<ShadowLookupParameters> lm;
-  std::vector<ShadowParameters> v; // History of deltas
-  std::vector<ShadowLookupParameters> lv;
+    cnn::real beta_1;
+    cnn::real beta_2;
+    cnn::real eps;
+    bool shadow_params_allocated;
+    std::vector<ShadowParameters> m; // History of gradients
+    std::vector<ShadowLookupParameters> lm;
+    std::vector<ShadowParameters> v; // History of deltas
+    std::vector<ShadowLookupParameters> lv;
 };
 
 } // namespace cnn

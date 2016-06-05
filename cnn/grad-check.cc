@@ -15,12 +15,18 @@ namespace cnn {
 
 void CheckGrad(Model& m, ComputationGraph& g) {
   cnn::real alpha = GRADIENT_CHECK_PARAM_DELTA; /// change to this alpha, which then shows that the difference between numeric and error propagation is around 10e-5.
-
+  if (sizeof(cnn::real) != sizeof(double))
+  {
+      cout << "gradient check needs high precision. please use double precision. recompile the code after define USE_DOUBLE in cnn/macros.h";
+      runtime_error("use double precision for gradient check");
+  }
   cnn::real E = as_scalar(g.forward());
+
   g.backward();
 
   bool flag = false;
   const vector<Parameters*>& params = m.parameters_list();
+
   for (auto pp : params) {
     cerr << "\nPARAMETERS " << pp << " name = " << pp->name << endl;
     Parameters& p = *pp;
@@ -53,26 +59,23 @@ void CheckGrad(Model& m, ComputationGraph& g) {
       cnn::real E_right = as_scalar(g.forward());
       cnn::real g = (E_right - E_left) / (2*alpha);
 
-      cnn::real threshold;
       cnn::real grd;
 #if HAVE_CUDA
       cudaMemcpy(&grd, &p.g.v[i], sizeof(cnn::real), cudaMemcpyDeviceToHost);
 #else
       grd = p.g.v[i];
 #endif
-      threshold = (cnn::real)pow(10.0,
+      if (g == 0 && grd == 0)
+          continue;
+      
+      cnn::real threshold = (cnn::real)pow(10.0,
           max((cnn::real)0.0, ceil(log10(min(fabs(g), fabs(grd))))) - (int)GRADIENT_CHECK_DIGIT_SIGNIFICANT_LEVEL);
       cnn::real diff = fabs(g - grd);
       bool wrong = (std::isnan(diff) || diff > threshold);
       
-      if (diff > 0.2)
-      {
-          cerr << "too large error" << endl;
-
-      }
       if (wrong)
       {
-          flag = true; cerr << "***[" << diff << "] ";
+          flag = true; cerr << "*** difference [" << diff << "] ";
           cerr << grd << ' ' << g << endl;
       }
     }
@@ -83,26 +86,71 @@ void CheckGrad(Model& m, ComputationGraph& g) {
     cerr << "\nLOOKUP PARAMETERS " << pp << endl;
     LookupParameters& p = *pp;
     size_t ts = p.dim.size();
-    for (unsigned j : p.non_zero_grads) {
+    for (auto grd : p.grads) {
+      unsigned j = grd.first;
       cerr << "OBJECT=" << j << endl;
       Tensor& v = p.values[j];
       Tensor& ag = p.grads[j];
-      for (size_t i = 0; i < ts; ++i) {
-        cnn::real old = v.v[i];
-        v.v[i] = old - alpha;
+      size_t sample_step = ts / 10;
+
+      for (size_t i = 0; i < ts; i+=sample_step) {
+          cnn::real old, newv ;
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+          old = v.v[i];
+#else
+#if HAVE_CUDA
+          cudaMemcpy(&old, &v.v[i], sizeof(cnn::real), cudaMemcpyDeviceToHost);
+#else
+          old = v.v[i];
+#endif
+#endif
+
+          newv = old - alpha;
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+          v.v[i] = newv;
+#else
+#if HAVE_CUDA
+        cudaMemcpy(&v.v[i], &newv, sizeof(cnn::real), cudaMemcpyHostToDevice);
+#else
+        v.v[i] = newv;
+#endif
+#endif
         cnn::real E_left = as_scalar(g.forward());
 
-        v.v[i] = old + alpha;
+        newv = old + alpha;
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+        v.v[i] = newv;
+#else
+#if HAVE_CUDA
+        cudaMemcpy(&v.v[i], &newv, sizeof(cnn::real), cudaMemcpyHostToDevice);
+#else
+        v.v[i] = newv;
+#endif
+#endif
         cnn::real E_right = as_scalar(g.forward());
         cnn::real g = (E_right - E_left) / (2 * alpha);
-        cnn::real f = fabs(g - ag.v[i]);
-        cnn::real m = max<cnn::real>(fabs(g), fabs(ag.v[i]));
-        if (f > 0.1) {
-          if (m > 0.f) f /= m;
-          if (f > 0.1) { flag = true; cerr << "*** "; }
+
+        cnn::real gv;
+#ifdef USE_CPU_FOR_LOOKUP_PARAM
+        gv = ag.v[i];
+#else
+#if HAVE_CUDA
+        cudaMemcpy(&gv, &ag.v[i], sizeof(cnn::real), cudaMemcpyDeviceToHost);
+#else
+        gv = ag.v[i];
+#endif
+#endif
+        cnn::real threshold = (cnn::real)pow(10.0,
+            max((cnn::real)0.0, ceil(log10(min(fabs(g), fabs(gv))))) - (int)GRADIENT_CHECK_DIGIT_SIGNIFICANT_LEVEL);
+        cnn::real diff = fabs(g - gv);
+        bool wrong = (std::isnan(diff) || diff > threshold);
+        if (wrong)
+        {
+            flag = true; cerr << "*** difference [" << diff << "] ";
+            cerr << gv << ' ' << g << endl;
         }
-        if (flag) 
-            cerr << ag.v[i] << ' ' << g << endl;
+        if (flag)
+            cerr << gv << ' ' << g << endl;
       }
     }
   }

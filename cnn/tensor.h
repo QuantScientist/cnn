@@ -3,7 +3,7 @@
 
 #include <initializer_list>
 #include <vector>
-
+#include <algorithm>
 #include "cnn/dim.h"
 #include "cnn/random.h"
 #include "cnn/aligned-mem-pool.h"
@@ -13,6 +13,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "cnn/cuda.h"
+#include "cnn/gpu-ops.h"
 #endif
 #include <boost/serialization/array.hpp>
 
@@ -25,6 +26,8 @@ namespace cnn {
 
 #define EIGEN_BACKEND 1
 
+extern   cnn::real* glb_gpu_accessible_host_mem ;
+
 #ifdef USE_DOUBLE
     typedef Eigen::MatrixXd  EMatrix;
     typedef Eigen::VectorXd EVector;
@@ -36,7 +39,7 @@ namespace cnn {
 
 struct Tensor {
   Tensor() = default;
-  Tensor(const Dim& d, cnn::real* v) : d(d), v(v) {}
+  Tensor(const Dim& d, cnn::real* v, int devid) : d(d), v(v), m_device_id(devid) { }
   const Eigen::Map<EMatrix, Eigen::Unaligned> operator*() const {
     assert(d.batch_elems() == 1);
     return Eigen::Map<EMatrix, Eigen::Unaligned>(v, d.rows(), d.cols());
@@ -109,7 +112,7 @@ struct Tensor {
       assert(b < d.batch_elems());
       const unsigned bsize = d.batch_size();
       Dim new_d(d); new_d.bd = 1;
-      Tensor ret(new_d, v + bsize * b);
+      Tensor ret(new_d, v + bsize * b, m_device_id);
       // std::cerr << "Getting tensor for batch " << (b % d.batch_elems()) << " bsize: " << bsize << ", ptr=" << (long)ret.v << std::endl;
       return ret;
     }
@@ -125,7 +128,7 @@ struct Tensor {
       Dim new_d = d; new_d.bd = 1;
       assert (d.batch_elems() >= 0);
       for(unsigned b = 0; b < d.batch_elems(); ++b)
-        bs[b] = Tensor(new_d, v + bsize * b);
+          bs[b] = Tensor(new_d, v + bsize * b, m_device_id);
       return bs;
     }
   }
@@ -133,6 +136,7 @@ struct Tensor {
   Dim d;
   cnn::real* v;
   std::vector<Tensor> bs;
+  int m_device_id; /// the device where values are saved; -1 CPU, 0 and otherwise are GPUs
 
  private:
   friend class boost::serialization::access;
@@ -140,10 +144,22 @@ struct Tensor {
   void save(Archive& ar, const unsigned int) const {
     ar & d;
 #if HAVE_CUDA
-    cnn::real * vc = (cnn::real*)malloc(d.size() * sizeof(cnn::real));
-    CUDA_CHECK(cudaMemcpy(vc, v, d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
-    ar & boost::serialization::make_array(vc, d.size());
-    free(vc);
+    if (m_device_id < 0)
+        ar & boost::serialization::make_array(v, d.size());
+    else{
+		cnn::real *vc = new cnn::real[d.size()]; 
+        int l = 0;
+        int r = std::min<int>(GPU_ALLOC_HOST_MEM_SIZE, d.size());
+        while (r - l > 0){
+            CUDA_CHECK(cudaMemcpy(glb_gpu_accessible_host_mem, &v[l], (r - l)*sizeof(cnn::real), cudaMemcpyDeviceToHost));
+            memcpy(&vc[l], glb_gpu_accessible_host_mem, (r - l)*sizeof(cnn::real));
+            l = r;
+            r += GPU_ALLOC_HOST_MEM_SIZE;
+            r = std::min<int>(r, d.size());
+        }
+        ar & boost::serialization::make_array(vc, d.size());
+        delete vc;
+    }
 #else
     ar & boost::serialization::make_array(v, d.size());
 #endif
@@ -152,12 +168,19 @@ struct Tensor {
   void load(Archive& ar, const unsigned int) {
     ar & d;
 #if HAVE_CUDA
-    CUDA_CHECK(cudaMalloc(&v, d.size() * sizeof(cnn::real)));
-    cnn::real* vc = static_cast<cnn::real*>(std::malloc(d.size() * sizeof(cnn::real)));
-    ar & boost::serialization::make_array(vc, d.size());
-    CUDA_CHECK(cudaMemcpyAsync(v, vc, d.size() * sizeof(cnn::real), cudaMemcpyHostToDevice));
+    v = static_cast<cnn::real*>(cnn_mm_malloc(d.size() * sizeof(cnn::real), CNN_ALIGN, (m_device_id < 0)));
+    if (m_device_id < 0){
+        ar & boost::serialization::make_array(v, d.size());
+    }
+    else
+    {
+        cnn::real * vc = (cnn::real*)malloc(d.size() * sizeof(cnn::real));
+        ar & boost::serialization::make_array(vc, d.size());
+        CUDA_CHECK(cudaMemcpyAsync(v, vc, d.size() * sizeof(cnn::real), cudaMemcpyHostToDevice));
+        free(vc);
+    }
 #else
-    v = static_cast<cnn::real*>(cnn_mm_malloc(d.size() * sizeof(cnn::real), 32));
+    v = static_cast<cnn::real*>(cnn_mm_malloc(d.size() * sizeof(cnn::real), sizeof(cnn::real)));
     ar & boost::serialization::make_array(v, d.size());
 #endif
   }
@@ -167,6 +190,7 @@ struct Tensor {
 std::ostream& operator<<(std::ostream& os, const Tensor& t);
 cnn::real as_scalar(const Tensor& t);
 std::vector<cnn::real> as_vector(const Tensor& v);
+std::vector<cnn::real> as_vector(int nsize, const cnn::real* v);
 
 struct TensorTools {
   static void Constant(Tensor& d, cnn::real c);
@@ -182,14 +206,12 @@ struct TensorTools {
   static void SetElement(const Tensor& v, int index, cnn::real value);
 
   static void SetElements(const Tensor& v, const std::vector<cnn::real>& vec);
-  static void CopyElements(const Tensor& v, const Tensor& v_src);
-};
-cnn::real rand01();
-int rand0n(int n);
-cnn::real rand_normal();
-int rand0n_uniform(int n);
+  static void CopyElements(Tensor& v, const Tensor& v_src);
 
-#define LZERO -57.00
+  // copy elements in v_src into a memory pointed at v. the size of v is increased by the size of v_src
+  static void PushElementsToMemory(int& size, const int buf_size, cnn::real* v, const Tensor& v_src);
+
+};
 
 } // namespace cnn
 

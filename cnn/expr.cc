@@ -7,10 +7,11 @@
 
 namespace cnn { namespace expr {
 
-Expression input(ComputationGraph& g, real s) { return Expression(&g, g.add_input(s)); }
-Expression input(ComputationGraph& g, const real *ps) { return Expression(&g, g.add_input(ps)); }
+Expression input(ComputationGraph& g, cnn::real s) { return Expression(&g, g.add_input(s)); }
+Expression input(ComputationGraph& g, const cnn::real *ps) { return Expression(&g, g.add_input(ps)); }
 Expression input(ComputationGraph& g, const Dim& d, const std::vector<cnn::real>& pdata) { return Expression(&g, g.add_input(d, pdata)); }
 Expression input(ComputationGraph& g, const Dim& d, const std::vector<cnn::real>* pdata) { return Expression(&g, g.add_input(d, pdata)); }
+Expression reference(ComputationGraph& g, const Dim& d, const cnn::real* pdata) { return Expression(&g, g.add_reference(d, pdata)); }
 Expression const_parameter(ComputationGraph& g, Parameters* p) { return Expression(&g, g.add_const_parameters(p)); }
 Expression parameter(ComputationGraph& g, Parameters* p) { return Expression(&g, g.add_parameters(p)); }
 Expression lookup(ComputationGraph& g, LookupParameters* p, unsigned index) { return Expression(&g, g.add_lookup(p, index)); }
@@ -25,11 +26,11 @@ Expression zeroes(ComputationGraph& g, const Dim& d) { return Expression(&g, g.a
 
 Expression operator-(const Expression& x) { return Expression(x.pg, x.pg->add_function<Negate>({x.i})); }
 Expression operator+(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<Sum>({x.i, y.i})); }
-Expression operator+(real x, const Expression& y) { return Expression(y.pg, y.pg->add_function<ConstantPlusX>({y.i}, x)); }
-Expression operator+(const Expression& x, real y) { return y+x; }
+Expression operator+(cnn::real x, const Expression& y) { return Expression(y.pg, y.pg->add_function<ConstantPlusX>({y.i}, x)); }
+Expression operator+(const Expression& x, cnn::real y) { return y+x; }
 Expression operator-(const Expression& x, const Expression& y) { return x+(-y); }
-Expression operator-(real x, const Expression& y) { return Expression(y.pg, y.pg->add_function<ConstantMinusX>({y.i}, x)); }
-Expression operator-(const Expression& x, real y) { return -(y-x); }
+Expression operator-(cnn::real x, const Expression& y) { return Expression(y.pg, y.pg->add_function<ConstantMinusX>({y.i}, x)); }
+Expression operator-(const Expression& x, cnn::real y) { return -(y-x); }
 Expression operator*(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<MatrixMultiply>({x.i, y.i})); }
 Expression operator*(const Expression& x, cnn::real y) { return Expression(x.pg, x.pg->add_function<ConstScalarMultiply>({x.i}, y)); }
 Expression cdiv(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<CwiseQuotient>({x.i, y.i})); }
@@ -46,8 +47,9 @@ Expression exp(const Expression& x) { return Expression(x.pg, x.pg->add_function
 Expression square(const Expression& x) { return Expression(x.pg, x.pg->add_function<Square>({x.i})); }
 Expression cube(const Expression& x) { return Expression(x.pg, x.pg->add_function<Cube>({x.i})); }
 Expression logistic(const Expression& x) { return Expression(x.pg, x.pg->add_function<LogisticSigmoid>({x.i})); }
-Expression rectify(const Expression& x) { return Expression(x.pg, x.pg->add_function<Rectify>({x.i})); }
-Expression hinge(const Expression& x, unsigned index, cnn::real m) { return Expression(x.pg, x.pg->add_function<Hinge>({x.i}, index, m)); }
+Expression rectify(const Expression& x) { return Expression(x.pg, x.pg->add_function<Rectify>({ x.i })); }
+Expression exponential_linear_units(const Expression& x, cnn::real scale) { return Expression(x.pg, x.pg->add_function<ExponentialLinearUnits>({ x.i }, scale)); }
+Expression hinge(const Expression& x, unsigned index, cnn::real m) { return Expression(x.pg, x.pg->add_function<Hinge>({ x.i }, index, m)); }
 Expression hinge(const Expression& x, const unsigned* pindex, cnn::real m) { return Expression(x.pg, x.pg->add_function<Hinge>({x.i}, pindex, m)); }
 Expression log_softmax(const Expression& x) { return Expression(x.pg, x.pg->add_function<LogSoftmax>({x.i})); }
 Expression log_softmax(const Expression& x, const std::vector<unsigned>& d) { return Expression(x.pg, x.pg->add_function<RestrictedLogSoftmax>({x.i}, d)); }
@@ -56,9 +58,9 @@ Expression softsign(const Expression& x) { return Expression(x.pg, x.pg->add_fun
 Expression pow(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<Pow>({x.i, y.i})); }
 Expression min(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<Min>({x.i, y.i})); }
 Expression max(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<Max>({x.i, y.i})); }
-Expression noise(const Expression& x, real stddev) { return Expression(x.pg, x.pg->add_function<GaussianNoise>({x.i}, stddev)); }
-Expression dropout(const Expression& x, real p) { return Expression(x.pg, x.pg->add_function<Dropout>({x.i}, p)); }
-Expression block_dropout(const Expression& x, real p) { return Expression(x.pg, x.pg->add_function<BlockDropout>({x.i}, p)); }
+Expression noise(const Expression& x, cnn::real stddev) { return Expression(x.pg, x.pg->add_function<GaussianNoise>({x.i}, stddev)); }
+Expression dropout(const Expression& x, cnn::real p) { return Expression(x.pg, x.pg->add_function<Dropout>({x.i}, p)); }
+Expression block_dropout(const Expression& x, cnn::real p) { return Expression(x.pg, x.pg->add_function<BlockDropout>({x.i}, p)); }
 
 Expression reshape(const Expression& x, const Dim& d) { return Expression(x.pg, x.pg->add_function<Reshape>({x.i}, d)); }
 Expression transpose(const Expression& x) { return Expression(x.pg, x.pg->add_function<Transpose>({x.i})); }
@@ -68,12 +70,14 @@ Expression cwise_multiply(const Expression& x, const Expression& y) {return Expr
 
 Expression dot_product(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<DotProduct>({x.i, y.i})); }
 Expression squared_distance(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<SquaredEuclideanDistance>({x.i, y.i})); }
-Expression huber_distance(const Expression& x, const Expression& y, real c) { return Expression(x.pg, x.pg->add_function<HuberDistance>({x.i, y.i}, c)); }
+Expression huber_distance(const Expression& x, const Expression& y, cnn::real c) { return Expression(x.pg, x.pg->add_function<HuberDistance>({x.i, y.i}, c)); }
 Expression l1_distance(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<L1Distance>({x.i, y.i})); }
 Expression binary_log_loss(const Expression& x, const Expression& y) { return Expression(x.pg, x.pg->add_function<BinaryLogLoss>({x.i,y.i})); }
-Expression pairwise_rank_loss(const Expression& x, const Expression& y, real m) { return Expression(x.pg, x.pg->add_function<PairwiseRankLoss>({x.i, y.i}, m)); }
+Expression pairwise_rank_loss(const Expression& x, const Expression& y, cnn::real m) { return Expression(x.pg, x.pg->add_function<PairwiseRankLoss>({x.i, y.i}, m)); }
 Expression poisson_loss(const Expression& x, unsigned y) { return Expression(x.pg, x.pg->add_function<PoissonRegressionLoss>({x.i}, y)); }
 Expression poisson_loss(const Expression& x, const unsigned* py) { return Expression(x.pg, x.pg->add_function<PoissonRegressionLoss>({x.i}, py)); }
+
+Expression reduce(const Expression& x) { return Expression(x.pg, x.pg->add_function<Reduce>({ x.i })); }
 
 Expression conv1d_narrow(const Expression& x, const Expression& f) { return Expression(x.pg, x.pg->add_function<Conv1DNarrow>({x.i, f.i})); }
 Expression conv1d_wide(const Expression& x, const Expression& f) { return Expression(x.pg, x.pg->add_function<Conv1DWide>({x.i, f.i})); }

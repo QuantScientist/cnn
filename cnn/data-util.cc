@@ -129,9 +129,13 @@ vector<vector<Expression>> pack_obs_uttfirst(FCorpusPointers raw, unsigned mbsiz
     return ret;
 }
 
-PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol)
+/**
+@param padding_to_the_back: true if padding is to the back of the input sequence; false if padding is to the front of the sequence
+*/
+PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol, const std::vector<bool>& padding_to_the_back)
 {
     PDialogue res;
+    assert(padding_to_the_back.size() == 2 || padding_to_the_back.size() == 1);
 
     for (auto& t : v_diag)
     {
@@ -139,8 +143,8 @@ PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol)
         int max_tgt = -1;
         for (auto &sp : t)
         {
-            max_src = std::max<int>(sp.first.size(), max_src);
-            max_tgt = std::max<int>(sp.second.size(), max_tgt);
+            max_src = std::max<int>(sp.first.size(), max_src);  /// max source side length
+            max_tgt = std::max<int>(sp.second.size(), max_tgt); /// max target side length
         }
 
         PTurn i_turn;
@@ -148,12 +152,49 @@ PDialogue padding_with_eos(const PDialogue& v_diag, int padding_symbol)
         {
             Sentence src(max_src, padding_symbol);
             Sentence tgt(max_tgt, padding_symbol);
-            std::copy_n(t[p].first.begin(), t[p].first.size(), src.begin());
-            std::copy_n(t[p].second.begin(), t[p].second.size(), tgt.begin());
+
+            bool padding_back = padding_to_the_back[0];
+            if (padding_back)
+                std::copy_n(t[p].first.begin(), t[p].first.size(), src.begin());
+            else
+                std::copy_n(t[p].first.begin(), t[p].first.size(), src.end() - t[p].first.size());
+
+            padding_back = (padding_to_the_back.size() == 2) ? padding_to_the_back[1] : padding_to_the_back[0];
+            if (padding_back)
+                std::copy_n(t[p].second.begin(), t[p].second.size(), tgt.begin());
+            else
+                std::copy_n(t[p].second.begin(), t[p].second.size(), tgt.end() - t[p].second.size());
 
             i_turn.push_back(make_pair(src, tgt));
         }
         res.push_back(i_turn);
+    }
+
+    return res;
+}
+
+/**
+@param padding_to_the_back: true if padding is to the back of the input sequence; false if padding is to the front of the sequence
+*/
+Sentences padding_with_eos(const Sentences& v_sent, int padding_symbol, bool  padding_to_the_back)
+{
+    Sentences res;
+
+    int max_src = -1;
+    for (auto &sp : v_sent)
+    {
+        max_src = std::max<int>(sp.size(), max_src);  /// max source side length
+    }
+
+    for (auto& s : v_sent)
+    {
+        Sentence src(max_src, padding_symbol);
+
+        if (padding_to_the_back)
+            std::copy_n(s.begin(), s.size(), src.begin());
+        else
+            std::copy_n(s.begin(), s.size(), src.end() - s.size());
+        res.push_back(src);
     }
 
     return res;
@@ -220,6 +261,41 @@ vector<int> get_same_length_dialogues(Corpus corp, int nbr_dialogues, size_t &mi
 
     min_nbr_turns = nbr_turn;
     return v_sel_idx; 
+}
+
+/// get a vector of responses, and theses responses can be the negative candidates
+/// for ranking experiments
+Sentences get_all_responses(Corpus &training)
+{
+    Sentences responses;
+    for (auto t : training)
+    {
+        for (auto s : t)
+        {
+            responses.push_back(s.second);
+        }
+    }
+    return responses;
+}
+
+CandidateSentencesList get_candidate_responses(PDialogue& selected, Sentences & negative_responses, long &rand_pos, int max_number_of_negative_samples)
+{
+    CandidateSentencesList csls;
+    int sz_negative_responses = negative_responses.size();
+    long big_odd_number = 1032911;
+
+    for (size_t i = 0; i < selected.size(); i++)
+    {
+        Sentences newVec;
+        for (int k = 0; k < max_number_of_negative_samples; k++)
+        {
+            int pos = rand_pos % sz_negative_responses;
+            newVec.push_back(negative_responses[pos]);
+            rand_pos = (rand_pos + big_odd_number) % sz_negative_responses;
+        }
+        csls.push_back(newVec);
+    }
+    return csls;
 }
 
 std::wstring utf8_to_wstring(const std::string& str)
@@ -460,9 +536,20 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     return corpus;
 }
 
+/// read corpus, assuming text data
+/// for speed-up, read the data as binary into a memory, and process them using stringsteam
 Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS, int maxSentLength, bool backofftounk, bool bcharacter)
 {
-    ifstream in(filename);
+    long l_file_size = get_file_size(filename);
+    char * temp_buf = new char[l_file_size];
+
+    ifstream in(filename.c_str(), ifstream::binary);
+    in.read(temp_buf, l_file_size);
+    in.close();
+
+    stringstream ss;
+    ss << temp_buf;
+
     string line;
 
     Corpus corpus;
@@ -470,7 +557,7 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     string prv_diagid = "-1";
     int lc = 0, stoks = 0, ttoks = 0;
 
-    while (getline(in, line)) {
+    while (getline(ss, line)) {
         trim_left(line);
         trim_right(line);
         if (line.length() == 0)
@@ -504,6 +591,7 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
 
         if ((source.front() != kSRC_SOS && source.back() != kSRC_EOS)) {
             cerr << "Sentence in " << filename << ":" << lc << " didn't start or end with <s>, </s>\n";
+            delete temp_buf;
             abort();
         }
     }
@@ -511,9 +599,14 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     if (diag.size() > 0)
         corpus.push_back(diag);
     cerr << lc << " lines, " << stoks << " & " << ttoks << " tokens (s & t), " << sd.size() << " & " << sd.size() << " types\n";
+
+    delete temp_buf;
     return corpus;
 }
 
+/**
+part_size : the number of lines to read. if smaller than 0, then read all lines. 
+*/
 Corpus read_corpus(ifstream & in, Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size)
 {
     string line;
@@ -524,7 +617,7 @@ Corpus read_corpus(ifstream & in, Dict& sd, int kSRC_SOS, int kSRC_EOS, long par
     int lc = 0, stoks = 0, ttoks = 0;
 
     long iln = 0;
-    while (getline(in, line) && iln < part_size) {
+    while (getline(in, line) && (part_size < 0 || iln < part_size)) {
         trim_left(line);
         trim_right(line);
         if (line.length() == 0)
@@ -1292,10 +1385,17 @@ vector<cnn::real> read_embedding(const string& line, Dict& sd, int & index)
 
 void read_embedding(const string& embedding_fn, Dict& sd, map<int, vector<cnn::real>> & vWordEmbedding)
 {
-    ifstream in(embedding_fn);
+    long lfsize = get_file_size(embedding_fn);
+    char * temp = new char[lfsize];
+    ifstream in(embedding_fn, ifstream::binary);
+    in.read(temp, lfsize);
+    in.close();
+
+    stringstream ss; 
+    ss << temp;
     string line;
 
-    while (getline(in, line)) {
+    while (getline(ss, line)) {
 
         int wrd_idx;
 
@@ -1303,8 +1403,6 @@ void read_embedding(const string& embedding_fn, Dict& sd, map<int, vector<cnn::r
         if (wrd_idx >= 0)
             vWordEmbedding[wrd_idx] = iv;
     }
-
-    in.close();
 
     // generate word embedding for unknown words by averaging 100 words
     vector<cnn::real> iv = vWordEmbedding.begin()->second;
@@ -1325,12 +1423,15 @@ void read_embedding(const string& embedding_fn, Dict& sd, map<int, vector<cnn::r
             continue;
         vWordEmbedding[sd.Convert(p)] = iv;
     }
+
+    delete temp;
 }
 
 string builder_flavour(variables_map vm)
 {
     string flavour = "rnn";
     if (vm.count("lstm"))	flavour = "lstm";
+    else if (vm.count("rnn_elu"))	flavour = "rnn_elu";
     else if (vm.count("gru"))	flavour = "gru";
     else if (vm.count("dglstm"))	flavour = "dglstm";
     else if (vm.count("dglstm-dnn")) flavour = "dnn";
@@ -1349,3 +1450,201 @@ vector<int> remove_first_and_last(const vector<int>& rep)
     std::copy(rep.begin() + 1, rep.end() - 1, trimedrep.begin());
     return trimedrep;
 }
+
+void DataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size)
+{
+    string line;
+
+    m_Corpus.clear();
+
+    Dialogue diag;
+    string prv_diagid = "-1";
+    int lc = 0, stoks = 0, ttoks = 0;
+
+    long iln = 0;
+    while (getline(m_ifs, line) && iln < part_size) {
+        trim_left(line);
+        trim_right(line);
+        if (line.length() == 0)
+            break;
+        ++lc;
+        Sentence source, target;
+        string diagid;
+
+        diagid = MultiTurnsReadSentencePair(line, &source, &sd, &target, &sd, false, kSRC_SOS, kSRC_EOS, false);
+        if (diagid == "")
+            continue;
+
+        if (diagid != prv_diagid)
+        {
+            if (diag.size() > 0)
+                m_Corpus.push_back(diag);
+            diag.clear();
+            prv_diagid = diagid;
+        }
+        diag.push_back(SentencePair(source, target));
+        stoks += source.size();
+        ttoks += target.size();
+
+        if ((source.front() != kSRC_SOS && source.back() != kSRC_EOS)) {
+            cerr << "Sentence in " << lc << " didn't start or end with <s>, </s>\n";
+            abort();
+        }
+
+        iln++;
+    }
+
+    if (diag.size() > 0)
+        m_Corpus.push_back(diag);
+    cerr << "from corpus " << m_Filename << ": " << lc << " lines, " << stoks << " & " << ttoks << " tokens (s & t), " << sd.size() << " & " << sd.size() << " types\n";
+}
+
+bool is_nan( const cnn::real & value)
+{
+    return value != value;
+}
+
+
+void display_value(int n, const cnn::real* val, string str)
+{
+    bool b_is_nan = false;
+#ifdef HAVE_CUDA
+    cnn::real * cpu_mem = (cnn::real*)malloc(sizeof(cnn::real) * n);
+    CUDA_CHECK(cudaMemcpy(cpu_mem, val, sizeof(cnn::real)*n, cudaMemcpyDeviceToHost));
+    cout << str << " ";
+    for (int i = 0; i < n; i++)
+    {
+        cout << " " << cpu_mem[i];
+        b_is_nan |= is_nan(cpu_mem[i]);
+    }
+    cout << endl;
+    free(cpu_mem);
+
+    if (b_is_nan)
+    {
+        cerr << " NAN found ";
+        throw(std::runtime_error("NAN found"));
+    }
+#else
+    for (int i = 0; i < n; i++)
+        cout << " " << val[i];
+    cout << endl;
+#endif
+}
+
+void check_value(int n, const cnn::real* val, string str)
+{
+    bool b_is_nan = false;
+    int ik = -1;
+#ifdef HAVE_CUDA
+    cnn::real * cpu_mem = (cnn::real*)malloc(sizeof(cnn::real) * n);
+    CUDA_CHECK(cudaMemcpy(cpu_mem, val, sizeof(cnn::real)*n, cudaMemcpyDeviceToHost));
+    for (int i = 0; i < n; i++)
+    {
+        b_is_nan |= is_nan(cpu_mem[i]);
+        if (b_is_nan)
+        {
+            ik = i;
+            break;
+        }
+    }
+    free(cpu_mem);
+
+#else
+    for (int i = 0; i < n; i++)
+    {
+        if (is_nan(val[i]))
+        {
+            ik = i;
+            b_is_nan = true;
+            break;
+        }
+    }
+#endif
+    if (b_is_nan)
+    {
+        cerr << " NAN found in " << str << " at " << ik;
+        throw(std::runtime_error("NAN found"));
+    }
+}
+
+long get_file_size(std::string filename)
+{
+    streampos begin, end;
+
+    ifstream myfile(filename, ios::binary);
+    begin = myfile.tellg();
+    myfile.seekg(0, ios::end);
+    end = myfile.tellg();
+    myfile.close();
+    return end - begin;
+}
+
+void normalize(vector<cnn::real>& v)
+{
+    cnn::real n = 0;
+    for (auto &p : v)
+        n += p * p;
+    n = sqrt(n);
+
+    for (auto &p : v)
+        p = p / n;
+}
+
+/**
+grid search to get the optimal weight
+*/
+cnn::real grid_search(const vector<vector<tuple<cnn::real, cnn::real, cnn::real>>>& dev_set_rerank_scores)
+{
+    /// learn a weight to IDF score
+    vector<cnn::real> v_bleu_scores;
+    vector<cnn::real> v_wgts;
+    cnn::real max_bleu_score = -10000.0;
+    int idx_wgt = -1;
+    for (cnn::real idf_wgt = 0.0; idf_wgt <= 1.0; idf_wgt += 0.05)
+    {
+        v_wgts.push_back(idf_wgt);
+
+        cnn::real avg_bleu_score = 0;
+        for (auto t : dev_set_rerank_scores)
+        {
+            cnn::real max_combine_score = -10000.0;
+            int idx = -1;
+            int k = 0;
+            for (auto c : t)
+            {
+                cnn::real lk = std::get<0>(c);
+                cnn::real idfscore = std::get<1>(c);
+                cnn::real this_score = (1.0 - idf_wgt) * lk + idf_wgt * idfscore;
+                if (max_combine_score < this_score)
+                {
+                    max_combine_score = this_score;
+                    idx = k;
+                }
+                k++;
+            }
+
+            if (idx >= 0)
+                avg_bleu_score += std::get<2>(t[idx]);
+            else
+                cerr << "warning no bleu scores " << endl;
+        }
+        v_bleu_scores.push_back(avg_bleu_score / dev_set_rerank_scores.size());
+
+        if (max_bleu_score < v_bleu_scores.back())
+        {
+            max_bleu_score = v_bleu_scores.back();
+            idx_wgt = v_bleu_scores.size() - 1;
+        }
+
+        cout << "w(" << idf_wgt << ") " << v_bleu_scores.back() << " ";
+    }
+    cout << endl;
+
+    cnn::real optimal_wgt = v_wgts[idx_wgt];
+
+    cout << "optimal weight to IDF score is " << optimal_wgt << endl;
+
+    return optimal_wgt;
+}
+

@@ -15,10 +15,13 @@ using namespace std;
 
 namespace cnn {
     
-    #define ALIGN 6
     AlignedMemoryPool<ALIGN>* fxs = nullptr;
     AlignedMemoryPool<ALIGN>* dEdfs = nullptr;
+    AlignedMemoryPool<ALIGN>* mem_nodes= nullptr;   /// for nodes allocation/delocation. operation of new/delete of each node has been overwritten to use this memory pool for speed-up
+    AlignedMemoryPool<ALIGN>* glb_temp_working_mem = nullptr;
+    AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem = nullptr; /// this saves gradient on those sparse lookup table parameters that have non-zero gradiens. these values and gradients are temporary
     mt19937* rndeng = nullptr;
+    cnn::real* glb_gpu_accessible_host_mem = nullptr;
 
     char* getCmdOption(char ** begin, char ** end, const std::string & option)
     {
@@ -42,18 +45,10 @@ namespace cnn {
         return std::find(begin, end, option) != end;
     }
 
-    void Initialize(int& argc, char**& argv, unsigned random_seed, bool demo) {
+    void Initialize(int& argc, char**& argv, int init_device_id, unsigned random_seed, bool demo) 
+    {
+
         cerr << "Initializing...\n";
-#if HAVE_CUDA
-        Initialize_GPU(argc, argv);
-#else
-        kSCALAR_MINUSONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
-        *kSCALAR_MINUSONE = -1;
-        kSCALAR_ONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
-        *kSCALAR_ONE = 1;
-        kSCALAR_ZERO = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
-        *kSCALAR_ZERO = 0;
-#endif
 
         if (random_seed == 0)
         {
@@ -68,10 +63,30 @@ namespace cnn {
                 random_seed = rd();
             }
         }
+
+#if HAVE_CUDA
+        Initialize_GPU(argc, argv, random_seed, init_device_id);
+#else
+        kSCALAR_MINUSONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
+        *kSCALAR_MINUSONE = -1;
+        kSCALAR_ONE = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
+        *kSCALAR_ONE = 1;
+        kSCALAR_ZERO = (cnn::real*)cnn_mm_malloc(sizeof(cnn::real), CNN_ALIGN);
+        *kSCALAR_ZERO = 0;
+#endif
+
         rndeng = new mt19937(random_seed);
 
         cerr << "Allocating memory...\n";
 		unsigned long num_mb = 512UL;
+        mem_nodes = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20), true);
+        glb_temp_working_mem = new AlignedMemoryPool<ALIGN>(1UL << 12); /// save gradient norms
+        glb_temp_lookup_gradient_value_mem = new AlignedMemoryPool<ALIGN>(1UL << 25);
+#ifdef HAVE_CUDA
+        /// because of using unified memory, need to synchronize GPU to CPU memory
+        CUDA_CHECK(cudaHostAlloc(&glb_gpu_accessible_host_mem, sizeof(cnn::real) * GPU_ALLOC_HOST_MEM_SIZE, cudaHostAllocDefault));
+#endif
+
         if (demo)
         {
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
@@ -79,12 +94,12 @@ namespace cnn {
         }
         else
         {
-#ifdef HAVE_CUDA
+#ifdef SMALL_GPU
             fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
             dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 20));
 #else
-            fxs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
-            dEdfs = new AlignedMemoryPool<ALIGN>(512UL * (1UL << 22));
+            fxs = new AlignedMemoryPool<ALIGN>(512 * (1UL << 22)); /// 2G memory
+            dEdfs = new AlignedMemoryPool<ALIGN>(512 * (1UL << 22)); /// 2G memory
 #endif
         }
         cerr << "Done.\n";
@@ -100,6 +115,11 @@ namespace cnn {
         delete (rndeng); 
         delete (fxs);
         delete (dEdfs);
+        delete (mem_nodes);
+        delete (glb_temp_working_mem);
+
+        for (auto p : kSCALAR_ONE_OVER_INT)
+            cnn_mm_free(p);
 
 #ifdef HAVE_CUDA
         Free_GPU();

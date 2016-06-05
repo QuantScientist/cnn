@@ -24,11 +24,17 @@
 
 namespace cnn {
 
-extern AlignedMemoryPool<6>* fxs;
-extern AlignedMemoryPool<6>* dEdfs;
+extern AlignedMemoryPool<ALIGN>* fxs;
+extern AlignedMemoryPool<ALIGN>* dEdfs;
+extern AlignedMemoryPool<ALIGN>* mem_nodes;
 extern cnn::real* kSCALAR_MINUSONE;
 extern cnn::real* kSCALAR_ONE;
 extern cnn::real* kSCALAR_ZERO;
+extern int device_id; 
+
+/// some constants 
+/// [1/2,1/3,1/3, ..., 1/N]
+extern std::vector<cnn::real*> kSCALAR_ONE_OVER_INT;
 
 class ExecutionEngine;
 struct ParameterNodeBase;
@@ -53,6 +59,11 @@ struct ComputationGraph {
   VariableIndex add_input(const real* ps);  // add pointer to scalar
   VariableIndex add_input(const Dim& d, const std::vector<cnn::real>& pdata);
   VariableIndex add_input(const Dim& d, const std::vector<cnn::real>* pdata);
+
+  // REFERENCES
+  // the computational network will pull references in from the user's data pointer
+  // structures and make them available to the computation
+  VariableIndex add_reference(const Dim& d, const cnn::real* pm);
 
 
   // PARAMETERS
@@ -170,7 +181,7 @@ struct Node {
                         Tensor& dEdxi) const final;
 
   // number of arguments to the function
-  inline unsigned arity() const { return args.size(); }
+  inline unsigned arity() const { return (unsigned ) args.size(); }
 
   // dependency structure
   std::vector<VariableIndex> args;
@@ -191,6 +202,18 @@ struct Node {
                  // number of bytes you need from aux_storage_size(). Note:
                  // this memory will be on the CPU or GPU, depending on your computation
                  // backend
+
+public:
+    static void * operator new (size_t sz)
+    {
+        /// get from the memory pool
+        void *p = mem_nodes->allocate((unsigned long) sz);
+        return p;
+    }
+    static void operator delete (void* )
+    {
+        mem_nodes->free();
+    }
 };
 
 template <class Function>
@@ -213,7 +236,7 @@ inline VariableIndex ComputationGraph::add_function(const std::initializer_list<
 
 template <class Function, typename T>
 inline VariableIndex ComputationGraph::add_function(const T& arguments) {
-  VariableIndex new_node_index(nodes.size());
+  VariableIndex new_node_index((unsigned int) nodes.size());
   nodes.push_back(new Function(arguments));
   set_dim_for_new_node(new_node_index);
   return new_node_index;

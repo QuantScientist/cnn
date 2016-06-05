@@ -34,18 +34,16 @@ Expression geq(const Expression &expr, cnn::real value, Expression &one, cnn::re
 
 Expression leq(const Expression &expr, cnn::real value, Expression &one, cnn::real epsilon = 0.01);
 
-/// do forward and backward embedding
-template<class Builder>
-Expression bidirectional(int slen, const vector<int>& source, ComputationGraph& cg, LookupParameters* p_cs,
-    Builder & encoder_fwd, Builder& encoder_bwd);
-
 /// source [1..T][1..NUTT] is time first and then content from each utterance
 /// [v_spk1_time0 v_spk2_time0 | v_spk1_time1 v_spk2_tim1 ]
 vector<Expression> embedding(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero, unsigned feat_dim);
 
+/// assume same length sentences
+vector<Expression> embedding(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs);
+
 /// organise data in the following format
 /// [v_spk1_time0 v_spk1_time1 ... v_spk1_timeN1 | v_spk2_time0 v_spk2_time1 ... v_spk2_timeN2]
-vector<Expression> embedding_spkfirst(const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, unsigned feat_dim);
+vector<Expression> embedding_spkfirst(const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs);
 
 /// return an expression for the time embedding weight
 typedef std::map<size_t, Expression> tExpression;
@@ -68,55 +66,13 @@ vector<unsigned> each_sentence_length(const vector<vector<int>>& source);
 
 bool similar_length(const vector<vector<int>>& source);
 
-/// source [1..T][1..NUTT] is time first and then content from each utterance
-/// [v_spk1_time0 v_spk2_time0 | v_spk1_time1 v_spk2_tim1 ]
-template<class Builder>
-Expression bidirectional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
-    Builder & encoder_fwd, Builder &encoder_bwd, size_t feat_dim)
-{
-    std::vector<Expression> source_embeddings;
-
-    vector<Expression> src_fwd = forward_directional(slen, source, cg, p_cs, zero, encoder_fwd, feat_dim);
-    vector<Expression> src_bwd = backward_directional(slen, source, cg, p_cs, zero, encoder_bwd, feat_dim);
-
-    for (unsigned i = 0; i < slen; ++i)
-        source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[i], src_bwd[i] })));
-    Expression src = concatenate_cols(source_embeddings);
-
-    return src;
-}
-
-template<class Builder>
-Expression bidirectional(unsigned & slen, const vector<int>& source, ComputationGraph& cg, LookupParameters* p_cs, Builder & encoder_fwd, Builder &encoder_bwd)
-{
-    std::vector<Expression> source_embeddings;
-
-    std::vector<Expression> src_fwd(slen);
-    std::vector<Expression> src_bwd(slen);
-
-    Expression i_x_t;
-
-    for (int t = 0; t < slen; ++t) {
-        i_x_t = lookup(cg, p_cs, source[t]);
-        src_fwd[t] = encoder_fwd.add_input(i_x_t);
-    }
-    for (int t = slen - 1; t >= 0; --t) {
-        i_x_t = lookup(cg, p_cs, source[t]);
-        src_bwd[t] = encoder_bwd.add_input(i_x_t);
-    }
-
-    for (unsigned i = 0; i < slen; ++i)
-    {
-        source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[i], src_bwd[i] })));
-    }
-
-    Expression src = concatenate_cols(source_embeddings);
-
-    return src;
-}
-
 /// returns init hidden for each utt in each layer
 std::vector<std::vector<Expression>> rnn_h0_for_each_utt(std::vector<Expression> v_h0, unsigned nutt, unsigned feat_dim);
+
+/// mask for each utterance
+/// assume that v_h0 has [layers][nutt] structure
+/// where Expression in v_h0 is [nutt * featdim matrix
+vector<Expression> mask(vector<Expression> v_h0, const vector<bool>& mask, unsigned nutt, unsigned feat_dim, const Expression & zeros);
 
 /**
 data in return has the following format
@@ -167,7 +123,7 @@ now need to process the data so that the output is
  0 1 2 3 x;
  0 1 2 3 4]
 i.e., the redundence is put to the end of a matrix*/
-template<class Builder>
+/*template<class Builder>
 vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
     Builder& encoder_bwd, unsigned int feat_dim)
 {
@@ -235,6 +191,163 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<int
 
 
     return src_bwd;
+}
+*/
+template<class Builder>
+vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
+    Builder& encoder_bwd, unsigned int feat_dim)
+{
+    unsigned int nutt = source.size();
+    /// get the maximum length of utternace from all speakers
+    vector<int> vlen;
+    slen = 0;
+    for (auto p : source)
+    {
+        slen = (slen < p.size()) ? p.size() : slen;
+        vlen.push_back(p.size());
+    }
+
+    Expression e_zero = input(cg, { feat_dim }, &zero);
+    vector<Expression> v_h_tm1;
+    std::vector<Expression> src_bwd(slen);
+
+    /// prepare for masking
+    unsigned encoder_hid_dim = encoder_bwd.get_hidden_dim();
+    vector<cnn::real> mask_zeros(encoder_hid_dim);
+    Expression e_m_zero = input(cg, { encoder_hid_dim }, mask_zeros);
+
+    for (int t = slen - 1; t >= 0; --t) {
+
+        vector<Expression> vm;
+        vector<bool> vmask(nutt, true);
+
+        for (size_t k = 0; k < nutt; k++)
+        {
+            int j = vlen[k] - t - 1;
+            if (j >= 0)
+            {
+                vm.push_back(lookup(cg, p_cs, source[k][vlen[k] - 1 - j]));
+            }
+            else
+            {
+                vm.push_back(e_zero);
+                vmask[k] = false;
+            }
+        }
+
+        Expression i_x_t = concatenate_cols(vm);
+
+
+        src_bwd[t] = encoder_bwd.add_input(v_h_tm1, i_x_t);
+
+        v_h_tm1 = encoder_bwd.final_s();
+        if (v_h_tm1.size() > 0)
+        {
+            /// reset hidden state if this instance is not yet valid
+            v_h_tm1 = mask(v_h_tm1, vmask, nutt, encoder_hid_dim, e_m_zero);
+        }
+    }
+
+    /// process RNN output to extract slices that correspond to the last time slices of each sentence
+
+    return src_bwd;
+}
+
+template<class Builder>
+vector<Expression> backward_directional(const vector<Expression>& source, ComputationGraph& cg, LookupParameters* p_cs, Builder& encoder_bwd)
+{
+    int slen = source.size();
+    std::vector<Expression> src_bwd(slen);
+
+    Expression i_x_t;
+
+    //// the initial hidden state, no data has observed yet
+    size_t ik = 0;
+    for (int t = slen - 1; t >= 0; --t) {
+        src_bwd[ik++] = encoder_bwd.add_input(source[t]); 
+    }
+
+    return src_bwd;
+}
+
+/// do forward and backward embedding
+template<class Builder>
+Expression bidirectional(int slen, const vector<int>& source, ComputationGraph& cg, LookupParameters* p_cs,
+    Builder & encoder_fwd, Builder& encoder_bwd);
+
+/// source [1..T][1..NUTT] is time first and then content from each utterance
+/// [v_spk1_time0 v_spk2_time0 | v_spk1_time1 v_spk2_tim1 ]
+template<class Builder>
+Expression bidirectional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
+    Builder & encoder_fwd, Builder &encoder_bwd, size_t feat_dim)
+{
+    std::vector<Expression> source_embeddings;
+
+    vector<Expression> src_fwd = forward_directional(slen, source, cg, p_cs, zero, encoder_fwd, feat_dim);
+    vector<Expression> src_bwd = backward_directional(slen, source, cg, p_cs, zero, encoder_bwd, feat_dim);
+
+    for (unsigned i = 0; i < slen; ++i)
+        source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[i], src_bwd[i] })));
+    Expression src = concatenate_cols(source_embeddings);
+
+    return src;
+}
+
+template<class Builder>
+Expression bidirectional(unsigned & slen, const vector<int>& source, ComputationGraph& cg, LookupParameters* p_cs, Builder & encoder_fwd, Builder &encoder_bwd)
+{
+    std::vector<Expression> source_embeddings;
+
+    std::vector<Expression> src_fwd(slen);
+    std::vector<Expression> src_bwd(slen);
+
+    Expression i_x_t;
+
+    for (int t = 0; t < slen; ++t) {
+        i_x_t = lookup(cg, p_cs, source[t]);
+        src_fwd[t] = encoder_fwd.add_input(i_x_t);
+    }
+    for (int t = slen - 1; t >= 0; --t) {
+        i_x_t = lookup(cg, p_cs, source[t]);
+        src_bwd[t] = encoder_bwd.add_input(i_x_t);
+    }
+
+    for (unsigned i = 0; i < slen; ++i)
+    {
+        source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[i], src_bwd[i] })));
+    }
+
+    Expression src = concatenate_cols(source_embeddings);
+
+    return src;
+}
+
+template<class Builder>
+Expression bidirectional(const vector<Expression>& source, ComputationGraph& cg, LookupParameters* p_cs, Builder & encoder_fwd, Builder &encoder_bwd)
+{
+    std::vector<Expression> source_embeddings;
+
+    int slen = source.size();
+    std::vector<Expression> src_fwd(slen);
+    std::vector<Expression> src_bwd(slen);
+
+    Expression i_x_t;
+
+    for (int t = 0; t < slen; ++t) {
+        src_fwd[t] = encoder_fwd.add_input(source[t]);
+    }
+    for (int t = slen - 1; t >= 0; --t) {
+        src_bwd[t] = encoder_bwd.add_input(source[t]);
+    }
+
+    for (unsigned i = 0; i < slen; ++i)
+    {
+        source_embeddings.push_back(concatenate(std::vector<Expression>({ src_fwd[i], src_bwd[i] })));
+    }
+
+    Expression src = concatenate_cols(source_embeddings);
+
+    return src;
 }
 
 /// do forward and backward embedding on continuous valued vectors

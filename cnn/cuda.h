@@ -10,6 +10,7 @@
 #include <cublas_v2.h>
 #include <cudnn.h>
 #include "cnn/except.h"
+#include <curand.h>
 
 #define CUDA_CHECK(stmt) do {                              \
     cudaError_t err = stmt;                                \
@@ -40,7 +41,7 @@ the following commented out for windows. need to figure out support for both win
 -      : "=r"(logn)
 -      : "r" (n-1));
  */
-  int logn = log(n);
+  int logn = (int) log(n);
   logn = logn > 9 ? 9 : (logn < 4 ? 4 : logn);
   ++logn;
   int threads = 1 << logn;
@@ -50,13 +51,16 @@ the following commented out for windows. need to figure out support for both win
 }
 
 void Free_GPU();
-void Initialize_GPU(int& argc, char**& argv);
+void Initialize_GPU(int& argc, char**& argv, unsigned random_seed, int device_id);
 
 #define CHECK_CUDNN(status) if (status != CUDNN_STATUS_SUCCESS) { cuda_exception("status = " + status); }
+#define CHECK_CURND(status) if (status != CURAND_STATUS_SUCCESS) { cuda_exception("status = " + status); }
 
 extern cudnnDataType_t cudnnDataType;
 extern cublasHandle_t cublas_handle;
 extern cudnnHandle_t cudnn_handle;
+extern curandGenerator_t curndGeneratorHandle;
+
 } // namespace cnn
 
 #endif

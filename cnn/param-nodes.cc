@@ -7,6 +7,8 @@ using namespace std;
 
 namespace cnn {
 
+extern AlignedMemoryPool<ALIGN>* glb_temp_lookup_gradient_value_mem;
+
 string ConstParameterNode::as_string(const vector<string>& arg_names) const {
   ostringstream s;
   s << "const_parameters(" << dim << ", " << params << ')';
@@ -21,6 +23,7 @@ Dim ConstParameterNode::dim_forward(const vector<Dim>& xs) const {
 void ConstParameterNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
   assert(xs.size() == 0);
   fx.v = params->values.v;
+  fx.m_device_id = params->values.m_device_id;
 }
 
 void ConstParameterNode::backward_impl(const vector<const Tensor*>& xs,
@@ -46,6 +49,7 @@ Dim ParameterNode::dim_forward(const vector<Dim>& xs) const {
 void ParameterNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
   assert(xs.size() == 0);
   fx.v = params->values.v;
+  fx.m_device_id = params->values.m_device_id;
 }
 
 void ParameterNode::backward_impl(const vector<const Tensor*>& xs,
@@ -85,6 +89,7 @@ void InputNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const 
     fx.v = const_cast<cnn::real*>(&pdata->front());
   }
 #endif
+  fx.m_device_id = device_id;
 }
 
 void InputNode::backward_impl(const vector<const Tensor*>& xs,
@@ -94,6 +99,43 @@ void InputNode::backward_impl(const vector<const Tensor*>& xs,
                                Tensor& dEdxi) const {
   cerr << "called backward() on arity 0 node\n";
   abort();
+}
+
+string ReferenceNode::as_string(const vector<string>& arg_names) const {
+    ostringstream s;
+    s << "reference(" << dim << ')';
+    return s.str();
+}
+
+Dim ReferenceNode::dim_forward(const vector<Dim>& xs) const {
+    return dim;
+}
+
+void ReferenceNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
+    assert(xs.size() == 0);
+#if HAVE_CUDA
+    cudaMemcpyAsync(fx.v, pdata, dim.size() * sizeof(cnn::real), cudaMemcpyDeviceToDevice);
+#else
+    // TODO memcpy is only necessary if pdata->front() points to an unaligned location
+    // need to compute this value
+    bool is_input_address_aligned = false;
+    if (!is_input_address_aligned) {
+        memcpy(fx.v, pdata, dim.size() * sizeof(cnn::real));
+    }
+    else {
+        fx.v = const_cast<cnn::real*>(pdata);
+    }
+#endif
+    fx.m_device_id = device_id;
+}
+
+void ReferenceNode::backward_impl(const vector<const Tensor*>& xs,
+    const Tensor& fx,
+    const Tensor& dEdf,
+    unsigned i,
+    Tensor& dEdxi) const {
+    cerr << "called backward() on arity 0 node\n";
+    abort();
 }
 
 string ScalarInputNode::as_string(const vector<string>& arg_names) const {
@@ -113,6 +155,7 @@ void ScalarInputNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) 
 #else
   fx.v[0] = *pdata;
 #endif
+  fx.m_device_id = device_id;
 }
 
 void ScalarInputNode::backward_impl(const vector<const Tensor*>& xs,
@@ -139,21 +182,44 @@ void LookupNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const
   if(pindex) {
     assert(*pindex < params->values.size());
     assert (fx.d.batch_elems() == 1);
+#ifdef HAVE_CUDA
+    if (params->values[*pindex].m_device_id < 0)
+        cudaMemcpyAsync(fx.v, params->values[*pindex].v, fx.d.size() * sizeof(cnn::real), cudaMemcpyHostToDevice);
+    else
+        fx.v = params->values[*pindex].v;
+    fx.m_device_id = device_id;
+    if (params->values_for_non_zero_grads.find(*pindex) == params->values_for_non_zero_grads.end())
+    {
+        Tensor vv(fx.d, fx.v, fx.m_device_id);
+        params->values_for_non_zero_grads[*pindex] = vv;
+    }
+    params->values_for_non_zero_grads[*pindex].v = fx.v;
+#else
     fx.v = params->values[*pindex].v;
-  } else {
+#endif
+  }
+  else {
+    std::runtime_error("not supported, should be removed"); 
     assert (pindices);
     assert (fx.d.batch_elems() == pindices->size());
+#ifdef HAVE_CUDA
+    cnn::real *vv = (cnn::real*) cnn_mm_malloc(sizeof(cnn::real)*fx.d.size(), CNN_ALIGN);
+#endif
+    fx.m_device_id = device_id;
     for (unsigned b = 0; b < pindices->size(); ++b) {
-      unsigned i = pindices->at(b);
+        unsigned i = pindices->at(b);
       assert (i < params->values.size());
       cnn::real* v = fx.v + fx.d.batch_size() * (b % fx.d.batch_elems());
 #if HAVE_CUDA
-      cudaMemcpyAsync(v, params->values[i].v, fx.d.batch_size() * sizeof(cnn::real), cudaMemcpyDeviceToDevice);
+      cudaMemcpyAsync(v, params->values[i].v, fx.d.batch_size() * sizeof(cnn::real), cudaMemcpyHostToDevice);
+      params->values_for_non_zero_grads[i] = Tensor({ fx.d.batch_size() }, vv + fx.d.batch_size() * (b % fx.d.batch_elems()), fx.m_device_id); /// working copies for the values
+      CUDA_CHECK(cudaMemcpy(vv + fx.d.batch_size() * (b % fx.d.batch_elems()), v, sizeof(cnn::real)*fx.d.batch_size(), cudaMemcpyDeviceToDevice));   /// have the same value
 #else
       memcpy(v, params->values[i].v, fx.d.batch_size() * sizeof(cnn::real));
 #endif
     }
   }
+  fx.m_device_id = device_id;
 }
 
 void LookupNode::backward_impl(const vector<const Tensor*>& xs,

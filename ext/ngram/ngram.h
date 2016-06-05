@@ -15,6 +15,7 @@
 #include "cnn/dglstm.h"
 #include "cnn/dict.h"
 #include "cnn/expr.h"
+#include "cnn/math.h"
 #include <boost/program_options/variables_map.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
@@ -64,12 +65,50 @@ public:
         ar & BOOST_SERIALIZATION_NVP(lgBiLM);
     }
 
+    /// generate sentences
+    bool Sampling(int sos_sym, int eos_sym, Dict& sd, std::vector<int>& response, 
+        std::vector<string>& str_response)
+    {
+        int prv_wrd = -1, wrd;
+        cnn::real prob = 0.0;
+        response.clear();
+
+        response.push_back(sos_sym);
+        str_response.push_back(sd.Convert(response.back()));
+        vector<cnn::real> dist; 
+
+        while (response.back() != eos_sym && response.size() < 100)
+        {
+            dist.clear();
+            prv_wrd = response.back();
+            for (auto & p : sd.GetWordList())
+            {
+                wrd = sd.Convert(p);
+                pair<int, int> bins = make_pair(prv_wrd, wrd);
+                if (lgBiLM.find(bins) == lgBiLM.end())
+                    prob = log(interpolation_wgt) + lgUniLM[wrd];
+                else
+                    prob = log(exp(lgBiLM[bins]) * (1.0 - interpolation_wgt) + interpolation_wgt * exp(lgUniLM[wrd]));
+
+                prob = exp(prob);
+
+                dist.push_back(prob);
+            }
+
+            int w = sample_accoding_to_distribution_of(dist);
+            response.push_back(w);
+            str_response.push_back(sd.Convert(response.back()));
+        }
+
+        return true;
+    }
+
     /// sentence log-likelihood
     cnn::real GetSentenceLL(const vector<string> & refTokens, Dict& sd)
     {
         int prv_wrd = -1;
         cnn::real prob = 0.0;
-        for (int n = 0; n < refTokens.size(); n++)
+        for (int n = 0; n < (int)refTokens.size(); n++)
         {
             int wrd = sd.Convert(refTokens[n]);
             if (n == 0)
@@ -93,7 +132,7 @@ public:
     {
         int prv_wrd = -1;
         cnn::real prob = 0.0;
-        for (int n = 0; n < refTokens.size(); n++)
+        for (int n = 0; n < (int)refTokens.size(); n++)
         {
             int wrd = refTokens[n]; 
             if (n == 0)
@@ -178,13 +217,13 @@ public:
     void UpdateNgramCounts(const vector<string> & tokens, int order, Dict& sd)
     {
         vocab_size = sd.size();
-        if (tokens.size() < order)
+        if ((int)tokens.size() < order)
             return;
 
         int n = order;
         if (n > 2)
             throw("only support bigram");
-        for (int i = 0; i < tokens.size() - n; i++)
+        for (int i = 0; i < (int)tokens.size() - n; i++)
         {
             vector<int> sb;
             for (int j = 0; j <= n; j++)
@@ -225,13 +264,13 @@ public:
     void UpdateNgramCounts(const Sentence & tokens, int order, Dict& sd)
     {
         vocab_size = sd.size();
-        if (tokens.size() < order)
+        if ((int)tokens.size() < order)
             return;
 
         int n = order;
         if (n > NgramOrder)
             throw("only support bigram");
-        for (int i = 0; i < tokens.size() - n; i++)
+        for (int i = 0; i < (int)tokens.size() - n; i++)
         {
             vector<int> sb;
             for (int j = 0; j <= n; j++)
@@ -272,7 +311,7 @@ public:
     void ComputeNgramModel()
     {
         /// for smoothing
-        for (long i = 0; i < vocab_size; i++)
+        for (unsigned long i = 0; i < vocab_size; i++)
             lgUniLM[i] = -log(vocab_size + nwords);
 
         /// add-one smoothing of unigram
@@ -284,7 +323,7 @@ public:
 
         /// assert
         cnn::real prb = 0.0;
-        for (long i = 0; i < vocab_size; i++)
+        for (unsigned long i = 0; i < vocab_size; i++)
             prb += exp(lgUniLM[i]);
 
         for (auto & p : bicnt)
