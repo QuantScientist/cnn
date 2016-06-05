@@ -2,6 +2,9 @@
 
 #include "ext/trainer/train_proc.h"
 
+extern cnn::real weight_IDF;
+extern cnn::real weight_edist;
+
 template<class rnn_t, class TrainProc>
 void prt_model_info(size_t LAYERS, size_t VOCAB_SIZE_SRC, const vector<unsigned>& dims, size_t nreplicate, size_t decoder_additiona_input_to, size_t mem_slots, cnn::real scale)
 {
@@ -55,18 +58,22 @@ Trainer* select_trainer(variables_map vm, Model* model)
         else
             sgd = new MomentumSGDTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
     }
-    if (vm["trainer"].as<string>() == "sgd")
-        sgd = new SimpleSGDTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "adagrad")
+    else if (vm["trainer"].as<string>() == "adagrad")
         sgd = new AdagradTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "adadelta")
+    else if (vm["trainer"].as<string>() == "adadelta")
         sgd = new AdadeltaTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "rmsprop")
+    else if (vm["trainer"].as<string>() == "rmsprop")
         sgd = new RmsPropTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
-    if (vm["trainer"].as<string>() == "rmspropwithmomentum")
+    else if (vm["trainer"].as<string>() == "rmspropwithmomentum")
         sgd = new RmsPropWithMomentumTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
+    else if (vm["trainer"].as<string>() == "rmspropwithmomentumgpu")
+        sgd = new RmsPropWithMomentumTrainerGPU(model, 1e-6, vm["eta"].as<cnn::real>());
+    else
+        sgd = new SimpleSGDTrainer(model, 1e-6, vm["eta"].as<cnn::real>());
     sgd->clip_threshold = vm["clip"].as<cnn::real>();
     sgd->eta_decay = vm["eta_decay"].as<cnn::real>();
+
+    sgd->clipping_type = (t_gradient_clipping)vm["clippingtype"].as<int>();
 
     return sgd;
 }
@@ -169,11 +176,13 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             cerr << "missing --outputfile" << endl;
             throw std::invalid_argument("missing --outputfile");
         }
-    }
 
-    if (vm.count("train-lda") > 0)
-    {
-        ptrTrainer->lda_train(vm, training, devel, sd);
+        if (vm["ranker"].as<bool>())
+        {
+            cerr << "Reading training corpus from " << vm["train"].as<string>() << "...\n";
+            training = read_corpus(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["mbsize"].as<int>(), true);
+        }
+
     }
 
     string fname;
@@ -240,12 +249,22 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         sgd = select_trainer<rnn_t, TrainProc>(vm, &model);
     }
 
+    if (vm.count("getidf") > 0)
+    {
+        Corpus idfcorpus;
+        cerr << "Preparing idf with data from " << vm["getidf"].as<string>() << "...\n";
+        idfcorpus = read_corpus(vm["getidf"].as<string>().c_str(), sd, kSRC_SOS, kSRC_EOS, 10000, false, false);
+
+        ptrTrainer->get_idf(vm, idfcorpus, sd);
+    }
+
     if (vm.count("sampleresponses"))
     {
         cerr << "Reading sample corpus from " << vm["sampleresponses"].as<string>() << "...\n";
         training = read_corpus(vm["sampleresponses"].as<string>(), sd, kSRC_SOS, kSRC_EOS);
         ptrTrainer->collect_sample_responses(hred, training);
     }
+
     if (vm.count("dialogue"))
     {
         if (vm.count("outputfile") == 0)
@@ -254,13 +273,35 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
         }
         ptrTrainer->dialogue(model, hred, vm["outputfile"].as<string>(), sd);
     }
-    if (vm.count("reinforce") && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
+
+    if (vm.count("train-lda") > 0)
+    {
+        ptrTrainer->lda_train(vm, training, devel, sd);
+    }
+
+    if ((vm.count("reinforce") || reinforceIDF >0) && vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
     {
         // a mirrow of the agent to generate decoding results so that their results can be evaluated
         // this is not efficient implementation, better way is to share model parameters
         int n_reinforce_train = vm["num_reinforce_train"].as<int>();
         cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
         reset_smoothed_ppl(ptrTrainer->ppl_hist);
+
+        if (vm.count("outputfile") == 0)
+        {
+            cerr << "need outputfile argument" << endl;
+            throw("need outputfile argument");
+        }
+
+        if (vm.count("reward_baseline") == 0)
+        {
+            cerr << "need reward_baseline argument" << endl;
+            throw("need reward_baseline argument");
+        }
+
+        string output_file_name = vm["outputfile"].as<string>();
+        cnn::real reward_baseline = vm["reward_baseline"].as<cnn::real>();
+
         for (size_t k_reinforce = 0; k_reinforce <= n_reinforce_train; k_reinforce++)
         {
             Model model_mirrow;
@@ -280,32 +321,117 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             load_cnn_model(fname, &model_mirrow);
 
             cnn::real threshold_prob;
-            threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
+            if (vm.count("threshold_prob"))
+            {
+                threshold_prob = vm["threshold_prob"].as<cnn::real>();
+                if (threshold_prob > 1 || threshold_prob < 0)
+                    throw("invalid threshold_prob value");
+            }
+            else
+                threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
 
-            size_t each_epoch = min<int>(2, vm["epochs"].as<int>() / n_reinforce_train);
-            ptrTrainer->REINFORCEtrain(model, hred, hred_agent_mirrow, training, devel, *sgd, fname, sd, each_epoch * n_reinforce_train, vm["nparallel"].as<int>(), largest_cost, vm["reward_baseline"].as<cnn::real>(), threshold_prob);
+            size_t each_epoch = max<int>(1, min<int>(2, vm["epochs"].as<int>() / n_reinforce_train));
+            ptrTrainer->split_data_batch_reinforce_train(vm["train"].as<string>(), model, hred, hred_agent_mirrow, 
+                devel, *sgd, sd, output_file_name, fname + "reinforce", each_epoch * n_reinforce_train, vm["nparallel"].as<int>(), vm["epochsize"].as<int>(),
+                largest_cost, reward_baseline, threshold_prob, vm["do_gradient_check"].as<bool>());
         }
     }
-    else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
+	else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0 && vm["ranker"].as<bool>())
+	{
+		if (training.size() == 0)
+		{
+			cerr << "Reading training data from " << vm["train"].as<string>() << "...\n";
+			training = read_corpus(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["mbsize"].as<int>(), false,
+				vm.count("charlevel") > 0);
+			sd.Freeze(); // no new word types allowed
+
+			training_numturn2did = get_numturn2dialid(training);
+		}
+		ptrTrainer->batch_train_ranking(model, hred, vm["epochs"].as<int>(), training, fname, vm["outputfile"].as<string>(), sd, training_numturn2did, sgd, vm["nparallel"].as<int>(), 
+            vm["max_number_of_negative_samples"].as<int>());
+	}
+	else if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0)
     {   // split data into nparts and train
         training.clear();
-        ptrTrainer->split_data_batch_train(vm["train"].as<string>(), model, hred, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), vm["epochsize"].as<int>(), vm["segmental_training"].as<bool>(), vm["do_gradient_check"].as<bool>(), vm["padding"].as<bool>());
+        ptrTrainer->split_data_batch_train(vm["train"].as<string>(), model, hred, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), vm["epochsize"].as<int>(), vm["segmental_training"].as<bool>(), vm["do_gradient_check"].as<bool>(), vm["padding"].as<bool>(), vm["withadditionalfeature"].as<bool>());
     }
-    else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
+    else if (vm.count("nparallel") && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && training.size() > 0)
     {
-        ptrTrainer->batch_train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), largest_dev_cost, vm["segmental_training"].as<bool>(), true, vm["do_gradient_check"].as<bool>(), true, vm["padding"].as<bool>(), kSRC_EOS);
+        ptrTrainer->batch_train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm["nparallel"].as<int>(), largest_dev_cost, vm["segmental_training"].as<bool>(), true, vm["do_gradient_check"].as<bool>(), true, vm["padding"].as<bool>(), kSRC_EOS, vm["withadditionalfeature"].as<bool>());
     }
-    else if (!vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus"))
+    else if (!vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && training.size() > 0)
     {
         ptrTrainer->train(model, hred, training, devel, *sgd, fname, vm["epochs"].as<int>(), vm.count("charlevel") > 0, vm.count("nosplitdialogue"));
     }
-    else if (vm.count("testcorpus"))
+    else if (vm.count("tunereranking") && devel.size() > 0 && vm.count("getidf"))
     {
         if (vm.count("outputfile") == 0)
         {
             throw std::invalid_argument("missing recognition output file");
         }
-        ptrTrainer->test(model, hred, testcorpus, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
+        if (weight_IDF - 0 < 1e-4)
+            ptrTrainer->MERT_tune(model, hred, devel, vm["outputfile"].as<string>(), sd);
+        else
+            ptrTrainer->MERT_tune_edit_distance(model, hred, devel, vm["outputfile"].as<string>(), sd, weight_IDF);
+    }
+    else if (vm.count("tunereranking") && devel.size() > 0 &&
+        vm["mmi-test"].as<bool>() && vm.count("anti-model-parameters") > 0)
+    {
+        Model anti_model;
+        string fname;
+        if (vm.count("anti-model-parameters") > 0){
+            fname = vm["anti-model-parameters"].as<string>();
+        }
+        else
+            throw("need to specify either parameters or initialise model file name");
+        rnn_t anti_procs(anti_model, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, 
+            (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, 
+            mem_slots, vm["scale"].as<cnn::real>());
+
+        load_cnn_model(fname, &anti_model);
+
+        if (vm.count("outputfile") == 0)
+        {
+            throw std::invalid_argument("missing recognition output file");
+        }
+        ptrTrainer->MERT_MMI_tune(hred, anti_procs, devel, vm["outputfile"].as<string>(), sd);
+    }
+    else if (vm.count("testcorpus") && testcorpus.size() > 0 && !vm["ranker"].as<bool>())
+    {
+        if (vm.count("outputfile") == 0)
+        {
+            throw std::invalid_argument("missing recognition output file");
+        }
+        if (vm["withadditionalfeature"].as<bool>())
+            ptrTrainer->test_with_additional_feature(model, hred, testcorpus, vm["outputfile"].as<string>(), sd);
+        if (vm["mmi-test"].as<bool>())
+        {
+            Model anti_model;
+            string fname;
+            if (vm.count("anti-model-parameters") > 0){
+                fname = vm["anti-model-parameters"].as<string>();
+            }
+            else
+                throw("need to specify either parameters or initialise model file name");
+            rnn_t anti_procs(anti_model, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
+
+            load_cnn_model(fname, &anti_model);
+
+            ptrTrainer->MMI_test(hred, anti_procs, testcorpus, vm["outputfile"].as<string>(), sd);
+        }
+        else if (vm["sample"].as<bool>())
+            ptrTrainer->sample(model, hred, testcorpus, vm["outputfile"].as<string>(), sd);
+        else
+            ptrTrainer->test(model, hred, testcorpus, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["segmental_training"].as<bool>());
+    }
+    else if (vm["ranker"].as<bool>() && testcorpus.size() > 0 && training.size() > 0)
+    {
+        ptrTrainer->testRanking(model, hred, testcorpus, training, vm["outputfile"].as<string>(), sd, test_numturn2did, vm["ranking_using_tfidf"].as<bool>(), 
+            vm["max_number_of_negative_samples"].as<int>());
+    }
+    else
+    {
+        cerr << "cannot find an operation to the corresponding arguments to run" << endl;
     }
 
     delete sgd;
@@ -648,7 +774,8 @@ int clustering_main_body(variables_map vm)
 
     if (vm.count("ngram-training") > 0)
     {
-        ptrTrainer->ngram_train(vm, training, sd);
+        nGram ngram = ptrTrainer->ngram_train(vm, training, sd);
+        ptrTrainer->ngram_sampling(kSRC_SOS, kSRC_EOS, vm, ngram, sd);
     }
 
     if (vm.count("ngram-clustering") > 0)

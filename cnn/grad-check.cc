@@ -86,7 +86,8 @@ void CheckGrad(Model& m, ComputationGraph& g) {
     cerr << "\nLOOKUP PARAMETERS " << pp << endl;
     LookupParameters& p = *pp;
     size_t ts = p.dim.size();
-    for (unsigned j : p.non_zero_grads) {
+    for (auto grd : p.grads) {
+      unsigned j = grd.first;
       cerr << "OBJECT=" << j << endl;
       Tensor& v = p.values[j];
       Tensor& ag = p.grads[j];

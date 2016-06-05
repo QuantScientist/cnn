@@ -24,5 +24,8 @@ namespace cnn {
     /// sample_dist : the sample distribution, size = vocab_size
     std::vector<int> rand0n_uniform(int vecsize, int n_exclusive, const std::vector<cnn::real>& sample_dist);
 
+    /// return a sampled number according to the distribution given in the argument
+    int sample_accoding_to_distribution_of(const std::vector<cnn::real>& probabilities);
+
 } // namespace cnn
 

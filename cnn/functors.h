@@ -131,6 +131,14 @@ struct FConstantMinus {
   cnn::real c;
 };
 
+struct FConstATimesXPlusConstB {
+    FConstATimesXPlusConstB(cnn::real a, cnn::real b) : a(a), b(b) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        return b + a*x;
+    }
+    cnn::real a, b;
+};
+
 struct FCopy {
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
         return x;
@@ -374,6 +382,22 @@ struct FL2SGDUpdatePtrArguments {
     cnn::real *scale;
 };
 
+/// update with denominator of scale computed in this function
+struct FL2SGDMomentumWithDenUpdate {
+    FL2SGDMomentumWithDenUpdate(cnn::real *gs, cnn::real l, cnn::real s, cnn::real m, cnn::real eps) : lambda(l), scale(-s), momentum(m), epsilon(eps), gscale(gs) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real& r, const cnn::real &x, const cnn::real &g, cnn::real &v) {
+        cnn::real den = r + epsilon;
+        den = (sizeof(cnn::real) == sizeof(float)) ? sqrtf(den) : sqrt(den);
+        v = momentum * v + scale * (*gscale) / den * g;
+        return v - x * lambda;
+    }
+    cnn::real lambda;
+    cnn::real scale;
+    cnn::real momentum;
+    cnn::real epsilon;
+    cnn::real* gscale;
+};
+
 struct FL2SGDMomentumUpdate {
     FL2SGDMomentumUpdate(cnn::real l, cnn::real s, cnn::real m) : lambda(l), scale(-s), momentum(m) {}
     CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x, const cnn::real &g, cnn::real &v) {
@@ -503,6 +527,21 @@ void softmax(int row, int col, const ElemType* a, ElemType* v, const bool isColW
         throw("not supported for row-major");
     }
 }
+
+/// clipping if absolute value is larger than a thrsehold
+struct FAbsClipping{
+    FAbsClipping(cnn::real c) : c(c) {}
+    CNN_DEVICE_FUNC inline cnn::real operator()(const cnn::real &x) const {
+        if (fabs(x) > c){
+            if (x > 0) return c;
+            else return -c;
+        }
+        else
+            return x;
+    }
+    cnn::real c;
+};
+
 
 } // namespace cnn
 

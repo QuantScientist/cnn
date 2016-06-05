@@ -101,6 +101,7 @@ namespace cnn {
                 }
             }
         }
+
     } // namespace gpu
 } // namespace cnn
 

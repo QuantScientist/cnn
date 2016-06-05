@@ -41,6 +41,9 @@ typedef float real;
 /// for math
 #define LZERO -57.00
 
+/// for gpu allocated memory on host, i.e., pinned memory
+#define GPU_ALLOC_HOST_MEM_SIZE 12768
+
 /// preallocate a GPU memory of consts 1/k
 /// the following is the maximum numbers [1/2,1/3,...1/(MEM_PRE_ALLOCATED_CONSTS_NUMBERS+1)]
 #define MEM_PRE_ALLOCATED_CONSTS_NUMBERS 100
@@ -53,6 +56,31 @@ typedef float real;
 /// other parameters will be stored on CPU or GPU depending on the build
 //#define USE_CPU_FOR_LOOKUP_PARAM
 
+/// this is defined if using IDF value as part of cost to rank candidates
+//#define RANKING_COMBINE_IDF
+
+/// if GPU memory is small, function and gradient cannot have large allocated space
+/// the solution is use both USE_CPU_FOR_LOOKUP_PARAM and also turn on the following SMALL_GPU
+/// #define SMALL_GPU
+
 /// whether to do binary serialization 
 #define BINARY_BOOST
+
+/// for beam search decoder to control the numaximum number of hypothesis
+/// for speed-up
+#define MAX_NUMBER_OF_HYPOTHESIS 200
+
+/// for ranker 
+#define MAX_NUMBER_OF_CANDIDATES 9
+
+/// for random number generation
+/// use curand to generate random numbers
+/// #ifdef USE_CURAND
+
+/// for decoding, the number of sentences to be evaluated
+#define NBR_DEV_PARALLEL_UTTS 5
+
+/// for ranking candidate responses, whether combine tfidf.
+#define RANKING_COMBINE_TFIDF
+
 };

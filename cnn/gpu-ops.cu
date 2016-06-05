@@ -68,6 +68,11 @@ void vcwise_quotient_backward(int n, const cnn::real* dEdy, const cnn::real* x_o
     accBinaryExprKernel << <tb.first, tb.second >> >(n, dEdy, x_other, dEdx, FQuotient());
 }
 
+void vsax_plus_sb(int n, cnn::real a, cnn::real b,  cnn::real* x, cnn::real* y) {
+    auto tb = SizeToBlockThreadPair(n);
+    unaryExprKernel << <tb.first, tb.second >> >(n, x, y, FConstATimesXPlusConstB(a, b));
+}
+
 void vconstant_minusx(int n, cnn::real c, const cnn::real* x, cnn::real* y) {
     auto tb = SizeToBlockThreadPair(n);
     unaryExprKernel << <tb.first, tb.second >> >(n, x, y, FConstantMinus(c));
@@ -213,14 +218,43 @@ void rmsprop_momentum_update(int n, const cnn::real* g, cnn::real* x, cnn::real*
     //CUDA_CHECK(cudaFree(sqnorm));
 }
 
+void rmsprop_smoothing_den(int n, cnn::real rho, const cnn::real *grd_squared_norm, cnn::real *r)
+{
+    auto tb = SizeToBlockThreadPair(n);
+    //    *r = rho * (*r) + (1 - rho) * grd_squared_norm;
+    //       = *r + (rho - 1) * (*r) + (1 - rho) * grd_squared_norm;
+    accBinaryExprKernel << <tb.first, tb.second >> >(n, r, grd_squared_norm, r, FL2SGDUpdate(1 - rho, rho - 1));
+
+}
+
+void clip_gradients(int n, const cnn::real *dense_param_grad_norm,
+    int m, const cnn::real *sparse_param_grad_norm,
+    cnn::real clip_threshold, int samples,
+    cnn::real* gscale)
+{
+    auto tb = SizeToBlockThreadPair(n + m);
+    ker_gradient_scaling << < tb.first, tb.second >> > (n, dense_param_grad_norm, m, sparse_param_grad_norm, clip_threshold, samples, gscale);
+}
+
+/// avoid computing scale outside of GPU, otherwise there is costly communications between CPU and GPUs.
+void rmsprop_momentum_update(int n, const cnn::real* r, cnn::real* x, const cnn::real* g, cnn::real* v, cnn::real* gscale, cnn::real lambda, cnn::real scale, cnn::real momentum, cnn::real epsilon) {
+    auto tb = SizeToBlockThreadPair(n);
+    accTripletWithOneGlbVariableExprKernel << <tb.first, tb.second >> >(n, r, x, g, v, x, FL2SGDMomentumWithDenUpdate(gscale, lambda, scale, momentum, epsilon));
+}
+
 void sqeucdist(int n, const cnn::real* x0, const cnn::real *x1, cnn::real* y) {
   auto tb = SizeToBlockThreadPair(n);
   ker_sqeucdist<<<tb.first,tb.second>>>(n, x0, x1, y);
 }
 
 void l2_norm_reducer(int n, const cnn::real* x0, cnn::real* y, bool square, bool accumulate) {
-  auto tb = SizeToBlockThreadPair(n);
-  ker_l2_norm_reducer<<<tb.first,tb.second>>>(n, x0, y, square, accumulate);
+    auto tb = SizeToBlockThreadPair(n);
+    ker_l2_norm_reducer << <tb.first, tb.second >> >(n, x0, y, square, accumulate);
+}
+
+void simple_clipping(int n, const cnn::real* x0, cnn::real* y, cnn::real threshold) {
+    auto tb = SizeToBlockThreadPair(n);
+    unaryExprKernel << <tb.first, tb.second >> >(n, x0, y, FAbsClipping(threshold)); 
 }
 
 void sqrt_of_l2_norm_reducer(int n, cnn::real* x0, cnn::real& res)
@@ -722,7 +756,6 @@ void kMaxPooling_backward(const int n, const int m, const cnn::real *xs, const i
         }
     }
 }
-
 
 } // namespace gpu
 } // namespace cnn

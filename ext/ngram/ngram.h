@@ -65,6 +65,44 @@ public:
         ar & BOOST_SERIALIZATION_NVP(lgBiLM);
     }
 
+    /// generate sentences
+    bool Sampling(int sos_sym, int eos_sym, Dict& sd, std::vector<int>& response, 
+        std::vector<string>& str_response)
+    {
+        int prv_wrd = -1, wrd;
+        cnn::real prob = 0.0;
+        response.clear();
+
+        response.push_back(sos_sym);
+        str_response.push_back(sd.Convert(response.back()));
+        vector<cnn::real> dist; 
+
+        while (response.back() != eos_sym && response.size() < 100)
+        {
+            dist.clear();
+            prv_wrd = response.back();
+            for (auto & p : sd.GetWordList())
+            {
+                wrd = sd.Convert(p);
+                pair<int, int> bins = make_pair(prv_wrd, wrd);
+                if (lgBiLM.find(bins) == lgBiLM.end())
+                    prob = log(interpolation_wgt) + lgUniLM[wrd];
+                else
+                    prob = log(exp(lgBiLM[bins]) * (1.0 - interpolation_wgt) + interpolation_wgt * exp(lgUniLM[wrd]));
+
+                prob = exp(prob);
+
+                dist.push_back(prob);
+            }
+
+            int w = sample_accoding_to_distribution_of(dist);
+            response.push_back(w);
+            str_response.push_back(sd.Convert(response.back()));
+        }
+
+        return true;
+    }
+
     /// sentence log-likelihood
     cnn::real GetSentenceLL(const vector<string> & refTokens, Dict& sd)
     {

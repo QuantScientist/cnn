@@ -3,7 +3,7 @@
 
 #include <initializer_list>
 #include <vector>
-
+#include <algorithm>
 #include "cnn/dim.h"
 #include "cnn/random.h"
 #include "cnn/aligned-mem-pool.h"
@@ -13,6 +13,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "cnn/cuda.h"
+#include "cnn/gpu-ops.h"
 #endif
 #include <boost/serialization/array.hpp>
 
@@ -24,6 +25,8 @@
 namespace cnn {
 
 #define EIGEN_BACKEND 1
+
+extern   cnn::real* glb_gpu_accessible_host_mem ;
 
 #ifdef USE_DOUBLE
     typedef Eigen::MatrixXd  EMatrix;
@@ -144,10 +147,18 @@ struct Tensor {
     if (m_device_id < 0)
         ar & boost::serialization::make_array(v, d.size());
     else{
-        cnn::real * vc = (cnn::real*)malloc(d.size() * sizeof(cnn::real));
-        CUDA_CHECK(cudaMemcpy(vc, v, d.size() * sizeof(cnn::real), cudaMemcpyDeviceToHost));
+		cnn::real *vc = new cnn::real[d.size()]; 
+        int l = 0;
+        int r = std::min<int>(GPU_ALLOC_HOST_MEM_SIZE, d.size());
+        while (r - l > 0){
+            CUDA_CHECK(cudaMemcpy(glb_gpu_accessible_host_mem, &v[l], (r - l)*sizeof(cnn::real), cudaMemcpyDeviceToHost));
+            memcpy(&vc[l], glb_gpu_accessible_host_mem, (r - l)*sizeof(cnn::real));
+            l = r;
+            r += GPU_ALLOC_HOST_MEM_SIZE;
+            r = std::min<int>(r, d.size());
+        }
         ar & boost::serialization::make_array(vc, d.size());
-        free(vc);
+        delete vc;
     }
 #else
     ar & boost::serialization::make_array(v, d.size());

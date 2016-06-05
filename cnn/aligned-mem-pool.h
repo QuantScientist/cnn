@@ -19,14 +19,12 @@
 
 namespace cnn {
 
-/// use CUDA 6.0 features, use unified memory so that GPU memory content can be 
-/// accessible to CPU, after calling cudaDeviceSynchronize();
 inline void* cnn_mm_malloc(size_t n, size_t align, bool on_cpu_only = false) {
   void* ptr = nullptr;
   if (!on_cpu_only)
   {
 #if HAVE_CUDA
-      CUDA_CHECK(cudaMallocManaged(&ptr, n));
+      CUDA_CHECK(cudaMalloc(&ptr, n));
 #else
       ptr = _mm_malloc(n, align);
 #endif
@@ -35,6 +33,16 @@ inline void* cnn_mm_malloc(size_t n, size_t align, bool on_cpu_only = false) {
   {
       ptr = _mm_malloc(n, align);
   }
+
+#ifdef HAVE_CUDA
+/*  {
+      size_t total_mem, free_mem;
+      CUDA_CHECK(cudaMemGetInfo(&free_mem, &total_mem));
+      std::cout << ":Allocated " << n;
+      std::cout << " Currently " << free_mem << " bytes free" << std::endl;
+  }*/
+#endif
+
   if (!ptr) {
     std::cerr << "Memory allocation failed n=" << n << " align=" << align << std::endl;
     throw cnn::out_of_memory("Memory allocation failed in cnn_mm_malloc()");
@@ -56,11 +64,7 @@ inline void cnn_mm_free(void* mem, bool on_cpu_only = false) {
 
 inline void* cnn_mm_malloc_host(size_t n, size_t align) {
     void* ptr = nullptr;
-#if HAVE_CUDA
-    CUDA_CHECK(cudaMallocHost(&ptr, n));
-#else
     ptr = _mm_malloc(n, align);
-#endif
     if (!ptr) {
         std::cerr << "Memory allocation failed n=" << n << " align=" << align << std::endl;
         throw cnn::out_of_memory("Memory allocation failed in cnn_mm_malloc()");
@@ -69,11 +73,7 @@ inline void* cnn_mm_malloc_host(size_t n, size_t align) {
 }
 
 inline void cnn_mm_free_host(void* mem) {
-#if HAVE_CUDA
-    CUDA_CHECK(cudaFreeHost(mem));
-#else
     _mm_free(mem);
-#endif
 
     //#else
     //  return std::free(n, align);

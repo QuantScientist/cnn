@@ -93,12 +93,6 @@ namespace cnn {
         // only has one pair of sentence so far
         virtual vector<Expression> build_graph(const Dialogue& prv_sentence, const Dialogue& cur_sentence, ComputationGraph& cg) = 0;
 
-        // return Expression of total loss
-        // only has one pair of sentence so far
-        virtual Expression build_graph(const TupleDialogue& cur_sentence, ComputationGraph& cg) = 0; 
-
-        virtual Expression build_graph(const TupleDialogue& prv_sentence, const TupleDialogue& cur_sentence, ComputationGraph& cg) = 0;
-
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
         {
             s2tmodel.reset();  /// reset network
@@ -119,25 +113,16 @@ namespace cnn {
         virtual vector<Sentence>batch_decode(const vector<Sentence>& cur_sentence, ComputationGraph& cg, cnn::Dict & tdict)
         {
             s2tmodel.reset();  /// reset network
-            vector<Sentence> iret = s2tmodel.batch_decode(cur_sentence, cg, tdict);
+            vector<Sentence> prv_sentence;
+            vector<Sentence> iret = s2tmodel.batch_decode(prv_sentence, cur_sentence, cg, tdict);
             return iret;
         }
 
         virtual vector<Sentence> batch_decode(const vector<Sentence>& prv_sentence, const vector<Sentence>& cur_sentence, ComputationGraph& cg, cnn::Dict& tdict)
         {
-            vector<Sentence> iret = s2tmodel.batch_decode(cur_sentence, cg, tdict);
+            s2tmodel.assign_cxt(cg, cur_sentence.size());
+            vector<Sentence> iret = s2tmodel.batch_decode(prv_sentence, cur_sentence, cg, tdict);
             return iret;
-        }
-
-        std::vector<int> decode_tuple(const SentenceTuple &source, ComputationGraph& cg, cnn::Dict  &sdict, cnn::Dict  &tdict)
-        {
-            s2tmodel.reset();  /// reset network
-            return s2tmodel.decode_tuple(source, cg, sdict, tdict);
-        }
-
-        std::vector<int> decode_tuple(const SentenceTuple &source, const SentenceTuple &cursource, ComputationGraph& cg, cnn::Dict  &sdict, cnn::Dict  &tdict)
-        {
-            return s2tmodel.decode_tuple(cursource, cg, sdict, tdict);
         }
 
         void assign_cxt(ComputationGraph& cg, size_t nutt)
@@ -147,9 +132,21 @@ namespace cnn {
             s2tmodel.assign_cxt(cg, nutt);
         }
 
+        void copy_external_memory_to_cxt(ComputationGraph& cg, size_t nutt, const vector<vector<cnn::real>>& external_state)
+        {
+            twords = 0;
+            swords = 0;
+            s2tmodel.copy_external_memory_to_cxt(cg, nutt, external_state);
+        }
+
         void serialise_cxt(ComputationGraph& cg)
         {
             s2tmodel.serialise_context(cg);
+        }
+
+        void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
+        {
+            s2tmodel.serialise_cxt_to_external_memory(cg, ext_memory);
         }
 
         void reset()
@@ -404,6 +401,9 @@ namespace cnn {
 		using DialogueProcessInfo<DBuilder>::nbr_turns;		
 		using DialogueProcessInfo<DBuilder>::s2txent;		
 		using DialogueProcessInfo<DBuilder>::s2tmodel;		
+        using DialogueProcessInfo<DBuilder>::serialise_cxt;
+        using DialogueProcessInfo<DBuilder>::assign_cxt;
+
     public:
         explicit MultiSourceDialogue(cnn::Model& model,
             const vector<unsigned int>& layers,
@@ -500,17 +500,18 @@ namespace cnn {
             return s2terr;
         }
 
-        Expression build_graph(const TupleDialogue & cur_sentence, ComputationGraph& cg) override
+        vector<Expression> build_graph(const Dialogue& cur_sentence,
+            const vector<vector<cnn::real>>& additional_feature,
+            ComputationGraph& cg)
         {
-            Expression v;
-            return v;
+            return vector<Expression>();
         }
 
-        /// for all speakers with history
-        Expression build_graph(const TupleDialogue & prv_sentence, const TupleDialogue & cur_sentence, ComputationGraph& cg)
+        vector<Expression> build_graph(const Dialogue& prv_sentence, const Dialogue& cur_sentence,
+            const vector<vector<cnn::real>>& additional_feature,
+            ComputationGraph& cg) 
         {
-            Expression v;
-            return v;
+            return vector<Expression>(); 
         }
 
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
@@ -525,6 +526,59 @@ namespace cnn {
             return s2tmodel.decode(source, cur, cg, tdict);
         }
 
+        virtual std::vector<int> sample(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            s2tmodel.reset();  /// reset network
+            return s2tmodel.sample(vector<int>(), source, cg, tdict);
+        }
+
+        virtual std::vector<int> sample(const std::vector<int> &source, const std::vector<int>& cur, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            s2tmodel.assign_cxt(cg, 1);
+            return s2tmodel.sample(source, cur, cg, tdict);
+        }
+
+        virtual std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            s2tmodel.reset();  /// reset network
+            return s2tmodel.beam_decode(source, cg, beam_search_decode, tdict);
+        }
+
+        virtual std::vector<int> beam_decode(const std::vector<int> &source, const std::vector<int>& cur, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            s2tmodel.assign_cxt(cg, 1);
+            return s2tmodel.beam_decode(source, cur, cg, beam_search_decode, tdict);
+        }
+
+        virtual std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const std::vector<cnn::real>&, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            return std::vector<int>(); 
+        }
+
+        virtual std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const std::vector<int>& cur, 
+            const std::vector<cnn::real>&, 
+            ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        virtual std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const std::vector<cnn::real>&,
+            ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        virtual std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const std::vector<int>& cur, 
+            const std::vector<cnn::real>&, 
+            ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> get_beam_decode_complete_list()
+        {
+            return s2tmodel.get_beam_decode_complete_list();
+        }
     };
 
     template <class DBuilder>
@@ -623,19 +677,6 @@ namespace cnn {
             assert(twords == s2tmodel.tgt_words);
 
             return s2terr;
-        }
-
-        Expression build_graph(const TupleDialogue & cur_sentence, ComputationGraph& cg) override
-        {
-            Expression v;
-            return v;
-        }
-
-        /// for all speakers with history
-        Expression build_graph(const TupleDialogue & prv_sentence, const TupleDialogue & cur_sentence, ComputationGraph& cg)
-        {
-            Expression v;
-            return v;
         }
 
         virtual std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
