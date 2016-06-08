@@ -272,6 +272,18 @@ public:
         return target;
     }
 
+    std::vector<Sentence> batch_decode(const std::vector<Sentence>& prv_response,
+        const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        const int sos_sym = tdict.Convert("<s>");
+        const int eos_sym = tdict.Convert("</s>");
+
+        unsigned int nutt = source.size();
+        std::vector<Sentence> target(nutt, vector<int>(1, sos_sym));
+
+        return target;
+    }
+    
     Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg)
     {
         unsigned int nutt = trg_tok.size();
@@ -323,7 +335,6 @@ class Seq2SeqEncDecModel : public DialogueBuilder<Builder, Decoder>{
 	using DialogueBuilder<Builder, Decoder>::p_h0;
 	using DialogueBuilder<Builder, Decoder>::last_context_exp;
 	using DialogueBuilder<Builder, Decoder>::p_R;
-	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
 	using DialogueBuilder<Builder, Decoder>::src_fwd;
 	using DialogueBuilder<Builder, Decoder>::src_words;
 	using DialogueBuilder<Builder, Decoder>::slen;
@@ -334,20 +345,26 @@ class Seq2SeqEncDecModel : public DialogueBuilder<Builder, Decoder>{
 	
 	using DialogueBuilder<Builder, Decoder>::p_bias;	
 	using DialogueBuilder<Builder, Decoder>::encoder_fwd;
-	using DialogueBuilder<Builder, Decoder>::last_decoder_s;
+    using DialogueBuilder<Builder, Decoder>::encoder_bwd;
+    using DialogueBuilder<Builder, Decoder>::last_decoder_s;
 	
 	using DialogueBuilder<Builder, Decoder>::v_errs;
 	using DialogueBuilder<Builder, Decoder>::vocab_size_tgt;
 
+protected:
+    Parameters* p_trns_src2hidden;
+    Expression trns_src2hidden;
+
 public:
-    Seq2SeqEncDecModel(cnn::Model& model, unsigned vocab_size_src, unsigned vocab_size_tgt, const vector<unsigned int>& layers, const vector<unsigned>& hidden_dims, int hidden_replicates, int decoder_use_additional_input = 0, int mem_slots = 0, cnn::real iscale = 1.0) :
+    Seq2SeqEncDecModel(cnn::Model& model, unsigned vocab_size_src, 
+        unsigned vocab_size_tgt, const vector<unsigned int>& layers, const vector<unsigned>& hidden_dims, 
+        int hidden_replicates, int decoder_use_additional_input = 0, int mem_slots = 0, cnn::real iscale = 1.0) :
         DialogueBuilder(model, vocab_size_src, vocab_size_tgt, layers, hidden_dims, hidden_replicates, decoder_use_additional_input, mem_slots, iscale)
     {
+        p_trns_src2hidden = model.add_parameters({ hidden_dims[ENCODER_LAYER], hidden_dims[EMBEDDING_LAYER] }, iscale, "trans_embedding_to_encoder");
     }
 
-public:
-
-    void start_new_instance(const std::vector<std::vector<int>> &source, ComputationGraph &cg) override
+    void start_new_instance(const std::vector<std::vector<int>> &source, ComputationGraph &cg) 
     {
         nutt = source.size();
 
@@ -360,6 +377,7 @@ public:
             }
 
             i_R = parameter(cg, p_R); // hidden -> word rep parameter
+            trns_src2hidden = parameter(cg, p_trns_src2hidden);
         }
 
         encoder_bwd.new_graph(cg);
@@ -374,7 +392,7 @@ public:
         }
 
         /// get the backward direction encoding of the source
-        src_fwd = concatenate_cols(backward_directional<Builder>(slen, source, cg, p_cs, zero, encoder_bwd, hidden_dim[ENCODER_LAYER]));
+        src_fwd = concatenate_cols(backward_directional<Builder>(slen, source, cg, p_cs, zero, encoder_bwd, hidden_dim[ENCODER_LAYER], trns_src2hidden));
 
         v_src = shuffle_data(src_fwd, nutt, hidden_dim[ENCODER_LAYER], src_len);
 
@@ -387,6 +405,18 @@ public:
         decoder.start_new_sequence(to);  /// get the intention
     };
 
+    void start_new_instance(const std::vector<std::vector<int>> &prv_response,
+        const std::vector<std::vector<int>> &source,
+        ComputationGraph &cg)
+    {
+        start_new_instance(source, cg);
+    }
+
+    virtual void start_new_single_instance(const std::vector<int> &prv_response, const std::vector<int> &src, ComputationGraph &cg)
+    {
+        start_new_instance(vector<vector<int>>(1, src), cg);
+    }
+
     void save_context(ComputationGraph& cg)
     {
         to_cxt.clear();
@@ -398,7 +428,8 @@ public:
         reset();
     }
 
-    vector<Expression> build_graph(const std::vector<std::vector<int>> &source, const std::vector<std::vector<int>>& osent, ComputationGraph &cg){
+    vector<Expression> build_graph(const std::vector<std::vector<int>> &source, 
+        const std::vector<std::vector<int>>& osent, ComputationGraph &cg){
         unsigned int nutt = source.size();
         start_new_instance(source, cg);
 
@@ -446,6 +477,16 @@ public:
         return errs;
     };
 
+    vector<Expression> build_graph(const std::vector<std::vector<int>> &prv_response,
+        const std::vector<std::vector<int>> &current_user_input,
+        const std::vector<std::vector<int>>& target_response,
+        ComputationGraph &cg)
+    {
+        vector<Expression> errs;
+
+        return errs;
+    }
+
     std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");
@@ -457,7 +498,7 @@ public:
         //  std::cerr << tdict.Convert(target.back());
         int t = 0;
 
-        start_new_single_instance(source, cg);
+        start_new_single_instance(std::vector<int>(), source, cg);
 
         Expression i_bias = parameter(cg, p_bias);
         Expression i_R = parameter(cg, p_R);
@@ -498,6 +539,12 @@ public:
         return target;
     }
 
+    std::vector<int> decode(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        std::vector<int> res;
+        return res;
+    }
+    
     Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg)
     {
         unsigned int nutt = trg_tok.size();
@@ -508,7 +555,7 @@ public:
         {
             Expression i_x_x;
             if (p >= 0)
-                i_x_x = lookup(cg, p_cs, p);
+                i_x_x = trns_src2hidden * lookup(cg, p_cs, p);
             else
                 i_x_x = input(cg, { hidden_dim[DECODER_LAYER] }, &zero);
             v_x_t.push_back(i_x_x);
@@ -519,7 +566,46 @@ public:
 
         return i_y_t;
     };
+    
+    Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg, RNNPointer *prev_state)
+    {
+        NOT_IMPLEMENTED;
+        Expression i_y_t;
+        return i_y_t;
+    };
 
+    void serialise_context(ComputationGraph& cg)
+    {
+
+    }
+
+    void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
+    {
+        NOT_IMPLEMENTED;
+        /// serialise_cxt_to_external_memory(cg, combiner, ext_memory);
+    }
+
+    virtual std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        std::vector<int> vs;
+        return vs;
+    }
+
+    virtual std::vector<int> beam_decode(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        std::vector<int> vs;
+        return vs;
+    }
+
+    std::vector<int> sample(const std::vector<int> &prv_context, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        return vector<int>();
+    }
+
+    priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> get_beam_decode_complete_list()
+    {
+        return priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis>();
+    }
 };
 
 
