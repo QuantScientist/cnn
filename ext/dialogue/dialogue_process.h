@@ -1046,6 +1046,7 @@ namespace cnn {
         {
             vector<Expression> object;
             vector<Sentence> insent, osent;
+            twords = swords = 0;
             i_errs.clear();
             for (auto p : cur_sentence)
             {
