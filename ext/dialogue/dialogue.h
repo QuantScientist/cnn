@@ -223,7 +223,6 @@ public:
     {
         serialise(cg, combiner);
 
-        int stt = 0;
         ext_memory.clear();
         for (const auto &p : combiner.final_s())
         {
@@ -368,8 +367,6 @@ public:
 
         for (int l = 0; l < v_last_cxt_s.size(); l++)
         {
-            int row = v_last_cxt_s[l].size() / nutt;
-
             last_cxt_s.push_back(m_pined_memory + stt);
 
             stt += v_last_cxt_s[l].size();

@@ -291,7 +291,6 @@ public:
     /// compute tf-idf
     vector<cnn::real> GetStats(const vector<int> & hypTokens)
     {
-        cnn::real hypidf = 0; 
     	unordered_map<int, cnn::real> tf_hyp;
 
         for (auto &p : hypTokens)

@@ -1162,7 +1162,6 @@ void TrainProcess<AM_t>::MERT_MMI_tune(AM_t &am, AM_t& anti_am,
             }
 
             vector<int> best_res;
-            cnn::real largest_score = -10000.0;
             vector<tuple<cnn::real, cnn::real, cnn::real>> rerank_scores;
             while (!beam_search_results.empty())
             {

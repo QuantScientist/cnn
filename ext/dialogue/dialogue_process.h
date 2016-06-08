@@ -760,6 +760,16 @@ namespace cnn {
         vector<Expression> i_errs;
 
     public:
+	using DialogueProcessInfo<DBuilder>::swords;
+	using DialogueProcessInfo<DBuilder>::twords;
+	using DialogueProcessInfo<DBuilder>::nbr_turns;
+	using DialogueProcessInfo<DBuilder>::s2txent;
+	using DialogueProcessInfo<DBuilder>::s2tmodel;
+        using DialogueProcessInfo<DBuilder>::serialise_cxt;
+        using DialogueProcessInfo<DBuilder>::assign_cxt;
+
+
+    public:
         DialogueSeq2SeqModel(cnn::Model& model,
             const vector<unsigned int>& layers,
             unsigned vocab_size_src,
