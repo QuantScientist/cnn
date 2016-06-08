@@ -1,5 +1,7 @@
 #pragma once
 
+#include <iostream>
+
 namespace cnn {
 
 //#define USE_DOUBLE
@@ -82,5 +84,7 @@ typedef float real;
 
 /// for ranking candidate responses, whether combine tfidf.
 #define RANKING_COMBINE_TFIDF
+
+#define NOT_IMPLEMENTED throw("not implemented");
 
 };
