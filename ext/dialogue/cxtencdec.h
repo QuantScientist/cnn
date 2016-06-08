@@ -55,7 +55,7 @@ class CxtEncDecModel : public DialogueBuilder<Builder, Decoder>{
 	using DialogueBuilder<Builder, Decoder>::last_context_exp;
 	using DialogueBuilder<Builder, Decoder>::p_R;
 	using DialogueBuilder<Builder, Decoder>::encoder_bwd;
-        using DialogueBuilder<Builder, Decoder>::v_encoder_bwd;
+    using DialogueBuilder<Builder, Decoder>::v_encoder_bwd;
  	using DialogueBuilder<Builder, Decoder>::src_fwd;
 	using DialogueBuilder<Builder, Decoder>::src_words;
 	using DialogueBuilder<Builder, Decoder>::slen;
@@ -88,7 +88,8 @@ public:
 
 public:
 
-    void start_new_instance(const std::vector<std::vector<int>> &source, ComputationGraph &cg) override 
+
+    void start_new_instance(const std::vector<std::vector<int>> &source, ComputationGraph &cg) 
     {
         nutt = source.size();
 
@@ -146,6 +147,27 @@ public:
         decoder.set_data_in_parallel(nutt);
         decoder.start_new_sequence(vcxt);  /// get the intention
     };
+
+    void start_new_instance(const std::vector<std::vector<int>> &prv_response,
+        const std::vector<std::vector<int>> &source,
+        ComputationGraph &cg)
+    {
+        start_new_instance(source, cg);
+    }
+
+    virtual void start_new_single_instance(const std::vector<int> &prv_response, const std::vector<int> &src, ComputationGraph &cg)
+    {
+        std::vector<std::vector<int>> source(1, src);
+        std::vector<std::vector<int>> prv_resp;
+        if (prv_response.size() > 0)
+            prv_resp.resize(1, prv_response);
+        start_new_instance(prv_resp, source, cg);
+    }
+    
+    void save_context(ComputationGraph& cg)
+    {
+        to_cxt.clear();
+    }
 
     void assign_cxt(ComputationGraph &cg, unsigned int nutt)
     {
@@ -226,6 +248,14 @@ public:
         return errs;
     };
 
+    vector<Expression> build_graph(const std::vector<std::vector<int>> &prv_response,
+        const std::vector<std::vector<int>> &current_user_input,
+        const std::vector<std::vector<int>>& target_response,
+        ComputationGraph &cg)
+    {
+        return build_graph(current_user_input, target_response, cg);
+    }
+
     std::vector<int> decode(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");
@@ -276,6 +306,11 @@ public:
         return target;
     }
 
+    std::vector<int> decode(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        return decode(source, cg, tdict); 
+    }
+
     std::vector<Sentence> batch_decode(const std::vector<Sentence>& prv_response,
         const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
@@ -310,6 +345,47 @@ public:
         return i_y_t;
     };
 
+    Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg, RNNPointer *prev_state)
+    {
+        NOT_IMPLEMENTED;
+        Expression i_y_t;
+        return i_y_t;
+    };
+    void serialise_context(ComputationGraph& cg)
+    {
+    }
+
+    void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
+    {
+        NOT_IMPLEMENTED;
+        /// serialise_cxt_to_external_memory(cg, combiner, ext_memory);
+    }
+
+    virtual std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        std::vector<int> vs;
+        NOT_IMPLEMENTED;
+        return vs;
+    }
+   
+    virtual std::vector<int> beam_decode(const std::vector<int> &prv_response, const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
+    {
+        std::vector<int> vs;
+        NOT_IMPLEMENTED;
+        return vs;
+    }
+
+    std::vector<int> sample(const std::vector<int> &prv_context, const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    {
+        NOT_IMPLEMENTED;
+        return vector<int>();
+    }
+
+    priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> get_beam_decode_complete_list()
+    {
+        NOT_IMPLEMENTED;
+        return priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis>();
+    }
 };
 
 /** sequence to sequence encoder decodr 

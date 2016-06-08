@@ -760,11 +760,11 @@ namespace cnn {
         vector<Expression> i_errs;
 
     public:
-	using DialogueProcessInfo<DBuilder>::swords;
-	using DialogueProcessInfo<DBuilder>::twords;
-	using DialogueProcessInfo<DBuilder>::nbr_turns;
-	using DialogueProcessInfo<DBuilder>::s2txent;
-	using DialogueProcessInfo<DBuilder>::s2tmodel;
+	    using DialogueProcessInfo<DBuilder>::swords;
+	    using DialogueProcessInfo<DBuilder>::twords;
+	    using DialogueProcessInfo<DBuilder>::nbr_turns;
+	    using DialogueProcessInfo<DBuilder>::s2txent;
+	    using DialogueProcessInfo<DBuilder>::s2tmodel;
         using DialogueProcessInfo<DBuilder>::serialise_cxt;
         using DialogueProcessInfo<DBuilder>::assign_cxt;
 
@@ -1009,4 +1009,190 @@ namespace cnn {
         }
     };
 
+    /**
+    HRED model for dialogue modeling
+    http://arxiv.org/pdf/1507.04808v1.pdf
+    */
+    template <class DBuilder>
+    class HREDModel : public DialogueProcessInfo<DBuilder>{
+    private:
+        vector<Expression> i_errs;
+    public:
+        using DialogueProcessInfo<DBuilder>::swords;
+        using DialogueProcessInfo<DBuilder>::twords;
+        using DialogueProcessInfo<DBuilder>::nbr_turns;
+        using DialogueProcessInfo<DBuilder>::s2txent;
+        using DialogueProcessInfo<DBuilder>::s2tmodel;
+        using DialogueProcessInfo<DBuilder>::serialise_cxt;
+        using DialogueProcessInfo<DBuilder>::assign_cxt;
+
+    public:
+        HREDModel(cnn::Model& model,
+            const vector<unsigned int>& layers,
+            unsigned vocab_size_src,
+            unsigned vocab_size_tgt,
+            const vector<unsigned>& hidden_dim,
+            unsigned hidden_replicates,
+            unsigned decoder_additional_input = 0,
+            unsigned mem_slots = MEM_SIZE,
+            cnn::real iscale = 1.0)
+            : DialogueProcessInfo<DBuilder>(model, layers, vocab_size_src, vocab_size_tgt, hidden_dim, hidden_replicates, decoder_additional_input, mem_slots, iscale)
+        {
+            }
+
+        // return Expression of total loss
+        // only has one pair of sentence so far
+        vector<Expression> build_graph(const vector<SentencePair> & cur_sentence, ComputationGraph& cg) override
+        {
+            vector<Expression> object;
+            vector<Sentence> insent, osent;
+            i_errs.clear();
+            for (auto p : cur_sentence)
+            {
+                insent.push_back(p.first);
+                osent.push_back(p.second);
+
+                twords += p.second.size() - 1;
+                swords += p.first.size() - 1;
+            }
+
+            s2tmodel.reset();
+            object = s2tmodel.build_graph(insent, osent, cg);
+
+            Expression i_err = sum(object);
+            s2txent = i_err;
+
+            assert(twords == s2tmodel.tgt_words);
+            assert(swords == s2tmodel.src_words);
+            i_errs.push_back(i_err);
+
+            s2tmodel.serialise_context(cg);
+
+            return object;
+        }
+
+        // return Expression of total loss
+        // only has one pair of sentence so far
+        vector<Expression> build_graph(const vector<SentencePair>& prv_sentence, const vector<SentencePair>& cur_sentence, ComputationGraph& cg) override
+        {
+            vector<Sentence> insent, osent;
+            twords = swords = 0;
+
+            for (auto p : cur_sentence)
+            {
+                osent.push_back(p.first);
+            }
+            for (auto p : prv_sentence)
+            {
+                insent.push_back(p.second);
+            }
+
+
+            int nutt = cur_sentence.size();
+
+            s2tmodel.assign_cxt(cg, nutt);
+
+            vector<Expression> object_prv_t2cur_s = s2tmodel.build_graph(insent, osent, cg);
+
+            osent.clear(); insent.clear();
+            for (auto p : cur_sentence)
+            {
+                insent.push_back(p.first);
+                osent.push_back(p.second);
+
+                twords += p.second.size() - 1;
+                swords += p.first.size() - 1;
+            }
+
+            vector<Expression> object_cur_s2cur_t = s2tmodel.build_graph(insent, osent, cg);
+
+            s2txent = sum(object_cur_s2cur_t);
+
+            Expression i_sum_err = sum(object_cur_s2cur_t) + sum(object_prv_t2cur_s);
+            i_errs.push_back(i_sum_err);
+
+            s2tmodel.serialise_context(cg);
+
+            return object_cur_s2cur_t;
+        }
+
+        Expression build_graph(const vector<SentenceTuple> & cur_sentence, ComputationGraph& cg) 
+        {
+            Expression object;
+            throw("not implemented");
+            return object;
+        }
+
+        vector<Expression> build_graph(const Dialogue & cur_sentence,
+            const vector<vector<cnn::real>>& additional_feature,
+            ComputationGraph& cg)
+        {
+            vector<Expression> object;
+            NOT_IMPLEMENTED;
+            return object;
+        }
+
+        vector<Expression> build_graph(const Dialogue& prv_sentence, const Dialogue& cur_sentence,
+            const vector<vector<cnn::real>>& additional_feature,
+            ComputationGraph& cg)
+        {
+            vector<Expression> object;
+            NOT_IMPLEMENTED;
+            return object;
+        }
+
+        virtual std::vector<int> sample(const std::vector<int> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            s2tmodel.reset();  /// reset network
+            return s2tmodel.sample(vector<int>(), source, cg, tdict);
+        }
+
+        virtual std::vector<int> sample(const std::vector<int> &source, const std::vector<int>& cur, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            s2tmodel.assign_cxt(cg, 1);
+            return s2tmodel.sample(source, cur, cg, tdict);
+        }
+
+        std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            s2tmodel.reset();  /// reset network
+            return s2tmodel.beam_decode(source, cg, beam_search_decode, tdict);
+        }
+
+        std::vector<int> beam_decode(const std::vector<int> &source, const std::vector<int>& cur, ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            s2tmodel.assign_cxt(cg, 1);
+            return s2tmodel.beam_decode(source, cur, cg, beam_search_decode, tdict);
+        }
+
+        std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const std::vector<cnn::real>&, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        std::vector<int> decode_with_additional_feature(const std::vector<int> &source, const std::vector<int>& cur,
+            const std::vector<cnn::real>&,
+            ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const std::vector<cnn::real>&,
+            ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        std::vector<int> beam_decode_with_additional_feature(const std::vector<int> &source, const std::vector<int>& cur,
+            const std::vector<cnn::real>&,
+            ComputationGraph& cg, int beam_search_width, cnn::Dict  &tdict)
+        {
+            return std::vector<int>();
+        }
+
+        priority_queue<Hypothesis, vector<Hypothesis>, CompareHypothesis> get_beam_decode_complete_list()
+        {
+            return s2tmodel.get_beam_decode_complete_list();
+        }
+    };
 }; // namespace cnn

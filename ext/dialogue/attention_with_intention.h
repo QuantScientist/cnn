@@ -661,7 +661,6 @@ public:
 
 public:
     /// for beam search decoder
-
     virtual std::vector<int> beam_decode(const std::vector<int> &source, ComputationGraph& cg, int beam_width, cnn::Dict &tdict)
     {
 
