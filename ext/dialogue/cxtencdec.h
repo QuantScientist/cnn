@@ -79,11 +79,16 @@ class CxtEncDecModel : public DialogueBuilder<Builder, Decoder>{
 	using DialogueBuilder<Builder, Decoder>::p_cxt2dec_w;
 	using DialogueBuilder<Builder, Decoder>::context;
 	using DialogueBuilder<Builder, Decoder>::reset;
-	
+
+protected:
+    Parameters* p_trns_emb2enc;
+    Expression trns_emb2enc;
+
 public:
     CxtEncDecModel(cnn::Model& model, int vocab_size_src, int vocab_size_tgt, const vector<unsigned int>& layers, const vector<unsigned>& hidden_dims, int hidden_replicates, int decoder_use_additional_input = 0, int mem_slots = 0, cnn::real iscale = 1.0) :
         DialogueBuilder<Builder, Decoder>(model, vocab_size_src, vocab_size_tgt, layers, hidden_dims, hidden_replicates, decoder_use_additional_input, mem_slots, iscale)
     {
+        p_trns_emb2enc = model.add_parameters({ hidden_dims[ENCODER_LAYER], hidden_dims[EMBEDDING_LAYER] }, iscale, "trans_embedding_to_encoder");
     }
 
 public:
@@ -111,6 +116,8 @@ public:
             i_cxt2dec_w = parameter(cg, p_cxt2dec_w);
             i_R = parameter(cg, p_R); // hidden -> word rep parameter
             i_bias = parameter(cg, p_bias);
+
+            trns_emb2enc = parameter(cg, p_trns_emb2enc);
         }
 
         encoder_bwd.new_graph(cg);
@@ -125,7 +132,7 @@ public:
         }
 
         /// get the backward direction encoding of the source
-        src_fwd = concatenate_cols(backward_directional<Builder>(slen, source, cg, p_cs, zero, encoder_bwd, hidden_dim[ENCODER_LAYER]));
+        src_fwd = concatenate_cols(backward_directional<Builder>(slen, source, cg, p_cs, zero, encoder_bwd, hidden_dim[ENCODER_LAYER], trns_emb2enc));
 
         v_src = shuffle_data(src_fwd, (size_t)nutt, (size_t)hidden_dim[ENCODER_LAYER], src_len);
 
@@ -167,6 +174,19 @@ public:
     void save_context(ComputationGraph& cg)
     {
         to_cxt.clear();
+    }
+
+    /**
+    1) save context hidden state
+    in last_cxt_s as [replicate_hidden_layers][nutt]
+    2) organize the context from decoder
+    data is organized in v_decoder_context as [nutt][replicate_hidden_layers]
+    after this process, last_decoder_s will save data in dimension [replicate_hidden_layers][nutt]
+    */
+    void serialise_context(ComputationGraph& cg)
+    {
+        /// get the top output
+        serialise(cg, context);
     }
 
     void assign_cxt(ComputationGraph &cg, unsigned int nutt)
@@ -333,7 +353,7 @@ public:
         {
             Expression i_x_x;
             if (p >= 0)
-                i_x_x = lookup(cg, p_cs, p);
+                i_x_x = trns_emb2enc * lookup(cg, p_cs, p);
             else
                 i_x_x = input(cg, { hidden_dim[DECODER_LAYER] }, &zero);
             v_x_t.push_back(i_x_x);
@@ -351,9 +371,6 @@ public:
         Expression i_y_t;
         return i_y_t;
     };
-    void serialise_context(ComputationGraph& cg)
-    {
-    }
 
     void serialise_cxt_to_external_memory(ComputationGraph& cg, vector<vector<cnn::real>>& ext_memory)
     {
