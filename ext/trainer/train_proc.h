@@ -26,7 +26,10 @@
 #include <sstream>
 #include <vector>
 #include <unordered_map>
+#include <algorithm>
+#include <iterator>
 
+#include <boost/algorithm/string.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int.hpp>
 #include <boost/random/uniform_01.hpp>
@@ -42,10 +45,6 @@
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/variables_map.hpp>
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
-
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -54,6 +53,7 @@
 using namespace std;
 using namespace cnn;
 using namespace boost::program_options;
+//using namespace boost;
 
 extern unsigned LAYERS;
 extern unsigned HIDDEN_DIM;  // 1024
@@ -258,7 +258,7 @@ public:
 
 public:
     /// for ngram
-    void ngram_train(variables_map vm, const Corpus& test, Dict& sd);
+    nGram ngram_train(variables_map vm, const Corpus& test, Dict& sd);
     void ngram_clustering(variables_map vm, const Corpus& test, Dict& sd);
     void ngram_one_pass_clustering(variables_map vm, const Corpus& test, Dict& sd);
     void representative_presentation(
@@ -269,6 +269,7 @@ public:
         vector<string>& i_representative, cnn::real interpolation_wgt);
     void hierarchical_ngram_clustering(variables_map vm, const CorpusWithClassId& test, Dict& sd);
     int closest_class_id(vector<nGram>& pnGram, int this_cls, int nclsInEachCluster, const Sentence& obs, cnn::real& score, cnn::real interpolation_wgt);
+    void ngram_sampling(int sos_sym, int eos_sym, variables_map vm, nGram& pnGram, Dict& sd);
 
 public:
     /// compute tfidf weight for all words from training data
@@ -4138,10 +4139,35 @@ void TrainProcess<AM_t>::lda_test(variables_map vm, const Corpus& test, Dict& sd
 }
 
 /**
+unconditional n-gram language sampling. 
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::ngram_sampling(int sos_sym, int eos_sym, variables_map vm, nGram& pnGram, Dict& sd)
+{
+    std::vector<int> response;
+    std::vector<string> str_response;
+    BleuMetric bleuScore;
+    if (vm.count("ngram_order") > 0)
+        bleuScore.Initialize(vm);
+    else
+        bleuScore.Initialize();
+
+    pnGram.Sampling(sos_sym, eos_sym, sd, response, str_response);
+    string str = "hi , thanks for visiting answer desk ! i 'm xxpersonxx";
+    vector<string> sref;
+    boost::split(sref, str, boost::algorithm::is_any_of(" ")); 
+    
+    bleuScore.AccumulateScore(sref, str_response);
+
+    string sBleuScore = bleuScore.GetScore();
+    cout << "BLEU (4) score = " << sBleuScore << endl;
+}
+
+/**
 train n-gram model
 */
 template <class AM_t>
-void TrainProcess<AM_t>::ngram_train(variables_map vm, const Corpus& test, Dict& sd)
+nGram TrainProcess<AM_t>::ngram_train(variables_map vm, const Corpus& test, Dict& sd)
 {
     Corpus empty;
     nGram pnGram = nGram();
@@ -4160,6 +4186,7 @@ void TrainProcess<AM_t>::ngram_train(variables_map vm, const Corpus& test, Dict&
 
     pnGram.SaveModel();
 
+    return pnGram;
 }
 
 /**

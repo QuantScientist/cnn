@@ -774,7 +774,8 @@ int clustering_main_body(variables_map vm)
 
     if (vm.count("ngram-training") > 0)
     {
-        ptrTrainer->ngram_train(vm, training, sd);
+        nGram ngram = ptrTrainer->ngram_train(vm, training, sd);
+        ptrTrainer->ngram_sampling(kSRC_SOS, kSRC_EOS, vm, ngram, sd);
     }
 
     if (vm.count("ngram-clustering") > 0)

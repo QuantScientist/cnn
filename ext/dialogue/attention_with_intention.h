@@ -1646,7 +1646,7 @@ public:
         i_emb2enc_b_all_words = concatenate_cols(vector<Expression>(nwords, parameter(cg, p_emb2enc_b)));
         src = i_U * (i_emb2enc * concatenate_cols(v_src) + i_emb2enc_b_all_words);
 
-        /// get the representation of inputs
+        /// get the representation of inputs for max-entropy feature
         v_max_ent_obs = embedding_spkfirst(source, cg, p_max_ent);
         i_max_ent_obs = concatenate_cols(average_embedding(src_len, vocab_size_tgt, v_max_ent_obs));
 
@@ -1931,7 +1931,7 @@ public:
         //  std::cerr << tdict.Convert(target.back());
         int t = 0;
 
-        start_new_single_instance(prv_response, source, cg);
+        start_new_single_instance(prv_context, source, cg);
 
         i_bias = parameter(cg, p_bias);
         i_R = parameter(cg, p_R);
