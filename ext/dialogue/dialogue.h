@@ -491,7 +491,8 @@ public:
     }
 
     /// return [nutt][decoded_results]
-    std::vector<Sentence> batch_decode(const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+    std::vector<Sentence> batch_decode(const std::vector<Sentence>& prv_response,
+        const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");
         const int eos_sym = tdict.Convert("</s>");
@@ -501,7 +502,7 @@ public:
 
         int t = 0;
 
-        start_new_instance(source, cg);
+        start_new_instance(prv_response, source, cg);
 
         Expression i_bias = parameter(cg, p_bias);
         Expression i_R = parameter(cg, p_R);
@@ -513,22 +514,21 @@ public:
         bool need_decode = true;
         while (need_decode)
         {
-            Expression i_y_t = decoder_step(vtmp, cg);
-            Expression i_r_t = reshape(i_R * i_y_t, { nutt * vocab_size_tgt });
-
+            Expression i_y_t = log_softmax(decoder_step(vtmp, cg));
+            Expression ydist = reshape(i_y_t, { nutt * vocab_size_tgt });
+            auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydis
+            
             need_decode = false;
             vtmp.clear();
             for (size_t k = 0; k < nutt; k++)
             {
                 if (target[k].back() != eos_sym)
                 {
-                    Expression ydist = softmax(pickrange(i_r_t, k *vocab_size_tgt, (k + 1) *vocab_size_tgt));
-
                     // find the argmax next word (greedy)
                     unsigned w = 0;
-                    auto dist = get_value(ydist, cg); // evaluates last expression, i.e., ydist
-                    auto pr_w = dist[w];
-                    for (unsigned x = 1; x < dist.size(); ++x) {
+                    unsigned init_pos = k * vocab_size_tgt;
+                    auto pr_w = dist[w + init_pos];
+                    for (unsigned x = 1 + init_pos; x < init_pos + vocab_size_tgt; ++x) {
                         if (dist[x] > pr_w) {
                             w = x;
                             pr_w = dist[x];
@@ -537,12 +537,12 @@ public:
 
                     // break potential infinite loop
                     if (t > 100) {
-                        w = eos_sym;
+                        w = eos_sym + init_pos;
                         pr_w = dist[w];
                     }
 
-                    vtmp.push_back(w);
-                    target[k].push_back(w);
+                    vtmp.push_back(w - init_pos);
+                    target[k].push_back(w - init_pos);
                     need_decode = true;
                 }
                 else
@@ -551,9 +551,8 @@ public:
             t += 1;
         }
 
-        v_decoder_context.push_back(decoder.final_s());
-
         save_context(cg);
+        serialise_context(cg);
 
         turnid++;
 
@@ -564,7 +563,8 @@ public:
      /// run in batch with multiple sentences
      /// source [utt][data stream] is utterance first and then its content
      /// the context RNN uses the last state of the encoder RNN as its input
-     virtual void start_new_instance(const std::vector<std::vector<int>> &source, ComputationGraph &cg) 
+     virtual void start_new_instance(const std::vector<std::vector<int>> &prv_response, 
+         const std::vector<std::vector<int>> &source, ComputationGraph &cg)
      {
          nutt = source.size();
 
@@ -628,15 +628,10 @@ public:
              v_decoder.back()->start_new_sequence(i_h0);
      };
 
-     void start_new_instance(const std::vector<std::vector<int>> &prv_response,
-         const std::vector<std::vector<int>> &source,
-         ComputationGraph &cg)
-     {}
-
      void start_new_single_instance(const std::vector<int> &src, ComputationGraph &cg)
      {
          std::vector<std::vector<int>> source(1, src);
-         start_new_instance(source, cg);
+         start_new_instance(std::vector<std::vector<int>>(),source, cg);
      }
 
      vector<Expression> build_graph(const std::vector<std::vector<int>> &prv_response,
@@ -647,7 +642,7 @@ public:
      
      vector<Expression> build_graph(const std::vector<std::vector<int>> &source, const std::vector<std::vector<int>>& osent, ComputationGraph &cg){
          unsigned int nutt = source.size();
-         start_new_instance(source, cg);
+         start_new_instance(std::vector<std::vector<int>>(), source, cg);
 
          vector<vector<Expression>> this_errs;
          vector<Expression> errs(nutt);
