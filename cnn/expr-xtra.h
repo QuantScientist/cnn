@@ -123,9 +123,9 @@ now need to process the data so that the output is
  0 1 2 3 x;
  0 1 2 3 4]
 i.e., the redundence is put to the end of a matrix*/
-/*template<class Builder>
+template<class Builder>
 vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
-    Builder& encoder_bwd, unsigned int feat_dim)
+    Builder& encoder_bwd, unsigned int feat_dim, Expression trns_src2hidden)
 {
     size_t ly; 
     unsigned int nutt= source.size();
@@ -167,7 +167,7 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<int
             int j = vlen[k] - t - 1;
             if (j >= 0)
             {
-                vm.push_back(lookup(cg, p_cs, source[k][vlen[k] - 1 - j]));
+                vm.push_back(trns_src2hidden*lookup(cg, p_cs, source[k][vlen[k] - 1 - j]));
             }
             else
             {
@@ -189,10 +189,9 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<int
         ik++;
     }
 
-
     return src_bwd;
 }
-*/
+
 template<class Builder>
 vector<Expression> backward_directional(unsigned & slen, const vector<vector<int>>& source, ComputationGraph& cg, LookupParameters* p_cs, vector<cnn::real>& zero,
     Builder& encoder_bwd, unsigned int feat_dim)
