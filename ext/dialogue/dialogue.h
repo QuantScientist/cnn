@@ -501,9 +501,6 @@ public:
 
         start_new_instance(prv_response, source, cg);
 
-        Expression i_bias = parameter(cg, p_bias);
-        Expression i_R = parameter(cg, p_R);
-
         v_decoder_context.clear();
 
         vector<int> vtmp(nutt, sos_sym);

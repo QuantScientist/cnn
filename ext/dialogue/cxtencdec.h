@@ -79,6 +79,7 @@ class CxtEncDecModel : public DialogueBuilder<Builder, Decoder>{
 	using DialogueBuilder<Builder, Decoder>::p_cxt2dec_w;
 	using DialogueBuilder<Builder, Decoder>::context;
 	using DialogueBuilder<Builder, Decoder>::reset;
+	using DialogueBuilder<Builder, Decoder>::serialise;
 
 protected:
     Parameters* p_trns_emb2enc;
@@ -335,7 +336,6 @@ public:
         const std::vector<Sentence> &source, ComputationGraph& cg, cnn::Dict  &tdict)
     {
         const int sos_sym = tdict.Convert("<s>");
-        const int eos_sym = tdict.Convert("</s>");
 
         unsigned int nutt = source.size();
         std::vector<Sentence> target(nutt, vector<int>(1, sos_sym));
@@ -345,7 +345,6 @@ public:
     
     Expression decoder_step(vector<int> trg_tok, ComputationGraph& cg)
     {
-        unsigned int nutt = trg_tok.size();
 
         Expression i_x_t;
         vector<Expression> v_x_t;
@@ -602,7 +601,6 @@ public:
 
         start_new_single_instance(std::vector<int>(), source, cg);
 
-        Expression i_bias = parameter(cg, p_bias);
         Expression i_R = parameter(cg, p_R);
 
         v_decoder_context.clear();
@@ -614,7 +612,7 @@ public:
 
             // find the argmax next word (greedy)
             unsigned w = 0;
-            auto dist = as_vector(cg.incremental_forward()); // evaluates last expression, i.e., ydist
+            auto dist = as_vector(cg.incremental_forward());
             auto pr_w = dist[w];
             for (unsigned x = 1; x < dist.size(); ++x) {
                 if (dist[x] > pr_w) {

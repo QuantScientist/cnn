@@ -3716,11 +3716,11 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     bool first = true;
     unsigned lines = 0;
 
-    save_cnn_model(out_file, &model);
-
     int prv_epoch = -1;
-    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
+    save_cnn_model(out_file, &model);
     size_t i_stt_diag_id = 0;
+
+    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
 
     while (best > target_ppl && sgd.epoch < maxepoch) {
         Timer iteration("completed in");
