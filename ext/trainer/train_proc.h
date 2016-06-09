@@ -2830,7 +2830,7 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
     int report = 0;
     unsigned lines = 0;
 
-    save_cnn_model(out_file, &model);
+    save_cnn_model(out_file, &model, true);
 
     int prv_epoch = -1;
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -2903,7 +2903,7 @@ void TrainProcess<AM_t>::REINFORCEtrain(Model &model, AM_t &am, AM_t &am_agent_m
             if (ddloss < largest_cost) {
                 largest_cost = ddloss;
 
-                save_cnn_model(out_file, &model);
+                save_cnn_model(out_file, &model, true);
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -3036,7 +3036,7 @@ void TrainProcess<AM_t>::REINFORCE_batch_train(Model &model, AM_t &am, AM_t &am_
             if (ddloss < best) {
                 best = ddloss;
 
-                save_cnn_model(out_file, &model);
+                save_cnn_model(out_file, &model, true);
 
             }
             else{
@@ -3055,7 +3055,7 @@ void TrainProcess<AM_t>::REINFORCE_batch_train(Model &model, AM_t &am, AM_t &am_
             break;
         }
         else{
-            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model, true);
         }
     }
 }
@@ -3199,7 +3199,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             if (ddloss < best) {
                 best = ddloss;
 
-                save_cnn_model(out_file, &model);
+                save_cnn_model(out_file, &model, true);
 
             }
             else{
@@ -3218,7 +3218,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
             break;
         }
         else{
-            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model, true);
         }
     }
 }
@@ -3303,7 +3303,7 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
 			ilines_check_point += ndutt * vd_dialogues.size();
 			if (ilines_check_point > 50000)
 			{
-				save_cnn_model(model_out_fn + ".e" + boost::lexical_cast<string>(train_epoch) + ".ln" + boost::lexical_cast<string>(lines), &model);
+				save_cnn_model(model_out_fn + ".e" + boost::lexical_cast<string>(train_epoch) + ".ln" + boost::lexical_cast<string>(lines), &model, true);
 				ilines_check_point = 0; 
 
                 for (auto iter = acc_over_turn.begin(); iter != acc_over_turn.end(); iter++)
@@ -3335,7 +3335,7 @@ void TrainProcess<AM_t>::batch_train_ranking(Model &model, AM_t &am, size_t max_
 
         sgd->update_epoch();
 
-		save_cnn_model(model_out_fn, &model);
+		save_cnn_model(model_out_fn, &model, true);
 
         cerr << "**SHUFFLE\n";
         shuffle(training_numturn2did.vNumTurns.begin(), training_numturn2did.vNumTurns.end(), *rndeng);
@@ -3380,7 +3380,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
     int report = 0;
     unsigned lines = 0;
 
-    save_cnn_model(out_file, &model);
+    save_cnn_model(out_file, &model, true);
 
     reset_smoothed_ppl(ppl_hist);
 
@@ -3528,7 +3528,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, Corpus &training, Corpus 
             if (ddloss < best) {
                 best = ddloss;
 
-                save_cnn_model(out_file, &model);
+                save_cnn_model(out_file, &model, true);
 
             }
             else{
@@ -3562,7 +3562,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
     unsigned lines = 0;
     int epoch = 0;
 
-    save_cnn_model(out_file, &model);
+    save_cnn_model(out_file, &model, true);
 
     reset_smoothed_ppl(ppl_hist);
 
@@ -3657,7 +3657,7 @@ void TrainProcess<AM_t>::train(Model &model, AM_t &am, TupleCorpus &training, Tr
             {
                 best = i_ppl;
 
-                save_cnn_model(out_file, &model);
+                save_cnn_model(out_file, &model, true);
             }
             else
             {
@@ -3717,7 +3717,7 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
     unsigned lines = 0;
 
     int prv_epoch = -1;
-    save_cnn_model(out_file, &model);
+    save_cnn_model(out_file, &model, true);
     size_t i_stt_diag_id = 0;
 
     vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
@@ -3836,9 +3836,9 @@ void TrainProcess<AM_t>::supervised_pretrain(Model &model, AM_t &am, Corpus &tra
         }
     }
 
-    save_cnn_model(out_file, &model);
+    save_cnn_model(out_file, &model, true);
 
-    save_cnn_model(out_file + ".pretrained", &model);
+    save_cnn_model(out_file + ".pretrained", &model, true);
 
 }
 
@@ -3895,7 +3895,7 @@ void TrainProcess<AM_t>::online_adaptation(Model &model, AM_t &am,
     }
 
     if (updated_model_fname.size() > 0)
-        save_cnn_model(updated_model_fname, &model);
+        save_cnn_model(updated_model_fname, &model, true);
 }
 
 /**
@@ -3919,7 +3919,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
     Corpus training = dr.corpus();
     training_numturn2did = get_numturn2dialid(training);
 
-    save_cnn_model(out_file, &model);
+    save_cnn_model(out_file, &model, true);
 
     while (sgd.epoch < max_epochs)
     {
@@ -3939,7 +3939,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
             training_numturn2did = get_numturn2dialid(training);
             //#define DEBUG
 #ifndef DEBUG
-            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model, true);
 #endif
             sgd.update_epoch();
 
@@ -3954,7 +3954,7 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
                     /// save the model with the best performance on the dev set
                     largest_dev_cost = ddloss;
 
-                    save_cnn_model(out_file, &model);
+                    save_cnn_model(out_file, &model, true);
                 }
                 else{
                     sgd.eta0 *= 0.5; /// reduce learning rate
@@ -4012,7 +4012,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
         training_numturn2did = get_numturn2dialid(training);
 
 	    /// save models for every batch of data
-        save_cnn_model(model_file_name + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model);
+        save_cnn_model(model_file_name + ".i" + boost::lexical_cast<string>(sgd.epoch) + ".d" + boost::lexical_cast<string>(total_diags), &model, true);
 
         if (training.size() == 0)
         {
@@ -4033,7 +4033,7 @@ void TrainProcess<AM_t>::split_data_batch_reinforce_train(string train_filename,
                     /// save the model with the best performance on the dev set
                     largest_dev_cost = ddloss;
 
-                    save_cnn_model(model_file_name, &model);
+                    save_cnn_model(model_file_name, &model, true);
                 }
                 else{
                     sgd.eta0 *= 0.5; /// reduce learning rate
@@ -4728,7 +4728,7 @@ void ClassificationTrainProcess<AM_t>::split_data_batch_train(string train_filen
             {
                 continue;
             }
-            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model, true);
 
             sgd.update_epoch();
         }
@@ -4737,7 +4737,7 @@ void ClassificationTrainProcess<AM_t>::split_data_batch_train(string train_filen
 
         if (fmod(trial, 50) == 0)
         {
-            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model);
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model, true);
         }
         trial++;
     }
@@ -4894,7 +4894,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
             ddloss = smoothed_ppl(ddloss, ppl_hist);
             if (ddloss < best) {
                 best = ddloss;
-                save_cnn_model(out_file, &model);
+                save_cnn_model(out_file, &model, true);
             }
             else{
                 sgd.eta0 *= 0.5; /// reduce learning rate
@@ -4912,7 +4912,7 @@ void ClassificationTrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpu
             break;
         }
         else{
-            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model);
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model, true);
         }
     }
 }

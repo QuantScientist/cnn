@@ -235,7 +235,15 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
     if (vm.count("initialise"))
     {
         string fname = vm["initialise"].as<string>();
-        load_cnn_model(fname, &model);
+        load_cnn_model(fname, &model, vm["inputformat"].as<string>() == "binary");
+
+        if (vm["convert-model-format"].as<bool>())
+        {
+            string ofname = vm["parameters"].as<string>();
+            save_cnn_model(ofname, &model, vm["outputformat"].as<string>() == "binary");
+            cout << "successfully converted data from " << fname << " to " << ofname << endl;
+            return 0;
+        }
     }
 
     ptrTrainer = new TrainProc();
@@ -309,7 +317,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             if (vm.count("parameters") > 0 && k_reinforce == 0) {
                 fname = vm["parameters"].as<string>();
 
-                save_cnn_model(fname, &model); 
+                save_cnn_model(fname, &model, vm["outputformat"].as<string>() == "binary");
             }
             else if (vm.count("initialise") > 0){
                 fname = vm["initialise"].as<string>();
@@ -318,7 +326,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
                 throw("need to specify either parameters or initialise model file name");
             rnn_t hred_agent_mirrow(model_mirrow, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
 
-            load_cnn_model(fname, &model_mirrow);
+            load_cnn_model(fname, &model_mirrow,vm["inputformat"].as<string>() == "binary");
 
             cnn::real threshold_prob;
             if (vm.count("threshold_prob"))
@@ -388,7 +396,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
             (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, 
             mem_slots, vm["scale"].as<cnn::real>());
 
-        load_cnn_model(fname, &anti_model);
+        load_cnn_model(fname, &anti_model, vm["inputformat"].as<string>() == "binary");
 
         if (vm.count("outputfile") == 0)
         {
@@ -415,7 +423,7 @@ int main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_additiona_
                 throw("need to specify either parameters or initialise model file name");
             rnn_t anti_procs(anti_model, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, mem_slots, vm["scale"].as<cnn::real>());
 
-            load_cnn_model(fname, &anti_model);
+            load_cnn_model(fname, &anti_model, vm["inputformat"].as<string>() == "binary");
 
             ptrTrainer->MMI_test(hred, anti_procs, testcorpus, vm["outputfile"].as<string>(), sd);
         }
@@ -603,7 +611,7 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
     {
         string fname = vm["initialise"].as<string>();
 
-        load_cnn_model(fname, &model);
+        load_cnn_model(fname, &model, vm["inputformat"].as<string>() == "binary");
     }
 
     ptrTrainer = new TrainProc();
@@ -630,7 +638,7 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
             if (vm.count("parameters") > 0 && k_reinforce == 0) {
                 fname = vm["parameters"].as<string>();
 
-                save_cnn_model(fname, &model); 
+                save_cnn_model(fname, &model, true); 
             }
             else if (vm.count("initialise") > 0){
                 fname = vm["initialise"].as<string>();
@@ -638,7 +646,7 @@ int classification_main_body(variables_map vm, size_t nreplicate = 0, size_t dec
             else
                 throw("need to specify either parameters or initialise model file name");
             rnn_t hred_agent_mirrow(model_mirrow, layers, VOCAB_SIZE_SRC, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, nreplicate, decoder_additiona_input_to, 0, vm["scale"].as<cnn::real>());
-            load_cnn_model(fname, &model_mirrow);
+            load_cnn_model(fname, &model_mirrow, vm["inputformat"].as<string>() == "binary");
 
             cnn::real threshold_prob;
             threshold_prob = 1.0 - k_reinforce / (vm["num_reinforce_train"].as<int>() + 0.0);
@@ -996,7 +1004,7 @@ int tuple_main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_addi
     if (vm.count("initialise"))
     {
         string fname = vm["initialise"].as<string>();
-        load_cnn_model(fname, &model);
+        load_cnn_model(fname, &model, vm["inputformat"].as<string>() == "binary");
     }
 
     ptrTrainer = new TrainProc();
