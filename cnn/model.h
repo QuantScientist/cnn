@@ -192,8 +192,9 @@ private:
     std::vector<LookupParameters*> lookup_params;
     mutable cnn::real* gradient_norm_scratch;
 };
-void save_cnn_model(std::string filename, Model* model);
-void load_cnn_model(std::string filename, Model* model);
+
+void save_cnn_model(std::string filename, Model* model, bool isBinary);
+void load_cnn_model(std::string filename, Model* model, bool isBinary);
 
 
 } // namespace cnn

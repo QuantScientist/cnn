@@ -368,31 +368,40 @@ void Model::reset_gradient() {
   for (auto p : lookup_params) { p->clear(); }
 }
 
-void save_cnn_model(std::string filename, Model* model) {
-#ifdef BINARY_BOOST
-    ofstream out(filename, ios::binary);
-    boost::archive::binary_oarchive oa(out);
-#else
-    ofstream out(filename, ofstream::out);
-    boost::archive::text_oarchive oa(out);
-#endif
-    oa << *model;
-    out.close();
+void save_cnn_model(std::string filename, Model* model, bool isBinary) 
+{
+    if (isBinary)
+    {
+        ofstream out(filename, ios::binary);
+        boost::archive::binary_oarchive oa(out);
+        oa << *model;
+        out.close();
+    }
+    else{
+        ofstream out(filename, ofstream::out);
+        boost::archive::text_oarchive oa(out);
+        oa << *model;
+        out.close();
+    }
 };
 
-void load_cnn_model(std::string filename, Model* model) {
-#ifdef BINARY_BOOST
-    ifstream in(filename, ios::binary);
-    if (in.is_open())
+void load_cnn_model(std::string filename, Model* model, bool isBinary) 
+{
+    if (isBinary)
     {
-        boost::archive::binary_iarchive ia(in);
-#else
-    ifstream in(filename, ifstream::in);
-    if (in.is_open())
-    {
-        boost::archive::text_iarchive ia(in);
-#endif
-        ia >> *model;
+        ifstream in(filename, ios::binary);
+        if (in.is_open())
+        {
+            boost::archive::binary_iarchive ia(in);
+            ia >> *model;
+        }
+    }else{
+        ifstream in(filename, ifstream::in);
+        if (in.is_open())
+        {
+            boost::archive::text_iarchive ia(in);
+            ia >> *model;
+        }
     }
 };
 
