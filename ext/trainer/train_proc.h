@@ -3389,13 +3389,15 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am,
         cerr << "\n***Train " << (lines / (cnn::real)training.size()) * 100 << " %100 of epoch[" << sgd.epoch << "] E = " << (training_set_scores->dloss / training_set_scores->twords) << " ppl=" << exp(training_set_scores->dloss / training_set_scores->twords) << ' ';
 
 
-//        vector<SentencePair> vs;
-//        for (auto&p : v_dialogues)
-//            vs.push_back(p[0]);
-//        vector<SentencePair> vres;
-//        am.respond(vs, vres, sd);
+        vector<int> vres = v_dialogues[0][0].second;
+        string decoded_result = am.respond(v_dialogues[0][0].first, sd);
 
-        // show score on dev data?
+        cout << "\nReference output: ";
+        for (auto &p : vres)
+            cout << sd.Convert(p) << " ";
+        cout << endl;
+
+        cout << "Decoded output: " << decoded_result << endl;
         report++;
 
         /*
