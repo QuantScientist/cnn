@@ -44,6 +44,21 @@ typedef vector<DialogueWithClassId> CorpusWithClassId;
 typedef vector<SentencePair> PTurn;  /// a turn consits of sentences pairs from difference utterances [#sentences]
 typedef vector<PTurn> PDialogue;  /// a parallel dialogue consists of turns from each parallel dialogue [#turns][#sentences]
 
+/// for real-vector inputs and their discrete labels
+typedef pair<vector<cnn::real>, vector<int>> RealVectorObsAndItsLabels;
+typedef map<long, RealVectorObsAndItsLabels> RealVectorAndLabelsCorpus;
+/// a turn consists of many pairs of real observations and their labels
+typedef vector<RealVectorObsAndItsLabels> PRealVectorObsAndItsLabelsTurn;
+typedef vector<PRealVectorObsAndItsLabelsTurn> PRealVectorObsAndItsLabelsDialogue;
+
+typedef struct 
+{
+    int nsamples;
+    int sampperiod;
+    short sampsize;
+    short sampkind;
+} stHTKFileHeader;
+
 template<class T>
 struct triplet
 {
@@ -132,6 +147,19 @@ Corpus read_corpus(ifstream&, Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_si
 CorpusWithClassId read_corpus_with_classid(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS);
 Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS, bool backofftounk, const pair<int, int>& columnids);
 Corpus read_corpus(ifstream & in, Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size, const pair<int, int>& columids, const pair<bool, bool>& ues_dict, unordered_map<int, int>& ph2logic);
+
+/**
+read real-valued vectors and their labels
+*/
+RealVectorAndLabelsCorpus read_audio_corpus_with_labels(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS, bool bByteSwap);
+/**
+read mfcc feature
+*/
+vector<cnn::real> read_mfcc(string featfilename, bool bByteSwap);
+/**
+read labels in MLF
+*/
+void read_mlf_labels(stringstream & ss, std::vector<int>* t, Dict* td);
 
 /** get id and its string */
 void get_string_and_its_id(const string &filename, const pair<int, int>& columids, const string& save_to_filename);
@@ -282,6 +310,51 @@ public:
     }
 
     Corpus corpus()
+    {
+        return m_Corpus;
+    }
+};
+
+/**
+Acoustic data reader
+*/
+class AcousticDataReader{
+private:
+    std::stringstream m_ifs;
+    string        m_Filename; /// the file name
+    RealVectorAndLabelsCorpus m_Corpus;   /// the corpsu;
+    char         *m_temp;     /// temp char space
+
+    bool m_bByteSwap;
+public:
+    AcousticDataReader(const string& train_filename, bool bByteSwap)
+    {
+        m_Filename = train_filename;
+        long lfsize = get_file_size(train_filename);
+        m_temp = new char[lfsize];
+        m_bByteSwap = bByteSwap;
+
+        ifstream ifs;
+        ifs.open(train_filename, ifstream::binary);
+        ifs.read(m_temp, lfsize);
+        ifs.close();
+
+        m_ifs << m_temp;
+    }
+
+    ~AcousticDataReader() { if (m_temp) delete m_temp; }
+
+    void read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size);
+
+    void restart()
+    {
+        m_ifs.str("");
+        m_ifs.clear();
+
+        m_ifs << m_temp;
+    }
+
+    RealVectorAndLabelsCorpus corpus()
     {
         return m_Corpus;
     }
