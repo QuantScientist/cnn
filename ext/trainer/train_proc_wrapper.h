@@ -1043,3 +1043,176 @@ int tuple_main_body(variables_map vm, size_t nreplicate = 0, size_t decoder_addi
 
     return EXIT_SUCCESS;
 }
+
+/**
+main body function to conduct read-valued vector recognition/processing
+*/
+template <class rnn_t, class TrainProc>
+int audio_main_body(variables_map vm, size_t nreplicate = 0)
+{
+#ifdef INPUT_UTF8
+    kSRC_SOS = sd.Convert(L"<s>");
+    kSRC_EOS = sd.Convert(L"</s>");
+#else
+    kSRC_SOS = sd.Convert("<s>");
+    kSRC_EOS = sd.Convert("</s>");
+#endif
+    verbose = vm.count("verbose");
+    g_train_on_turns = vm["turns"].as<int>();
+
+    typedef vector<int> Sentence;
+    typedef pair<Sentence, Sentence> SentencePair;
+    RealVectorAndLabelsCorpus training, devel, testcorpus;
+    string line;
+    TrainProc  * ptrTrainer = nullptr;
+
+    if (vm.count("readdict"))
+    {
+        string fname = vm["readdict"].as<string>();
+#ifdef INPUT_UTF8
+        wifstream in(fname, wifstream::in);
+        boost::archive::text_wiarchive ia(in);
+#else
+        ifstream in(fname, ifstream::in);
+        boost::archive::text_iarchive ia(in);
+#endif
+        if (!in.is_open())
+            throw("cannot open " + fname);
+        ia >> sd;
+        sd.Freeze();
+    }
+
+    if ((vm.count("train") > 0 && vm["epochsize"].as<int>() == -1) || vm.count("writedict") > 0 || vm.count("train-lda") > 0)
+    {
+        cerr << "Reading training data from " << vm["train"].as<string>() << "...\n";
+        training = read_audio_corpus_with_labels(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["byteswap"].as<bool>());
+        sd.Freeze(); // no new word types allowed
+
+//        training_numturn2did = get_numturn2dialid(training);
+
+        if (vm.count("writedict"))
+        {
+            string fname = vm["writedict"].as<string>();
+#ifdef INPUT_UTF8
+            wstring wfname;
+            wfname.assign(fname.begin(), fname.end());
+            wofstream ofs(wfname);
+            boost::archive::text_woarchive oa(ofs);
+#else
+            ofstream on(fname);
+            boost::archive::text_oarchive oa(on);
+#endif
+            oa << sd;
+        }
+    }
+    else
+    {
+        if (vm.count("readdict") == 0)
+        {
+            throw std::invalid_argument("must have either training corpus or dictionary");
+        }
+    }
+
+    LAYERS = vm["layers"].as<int>();
+    HIDDEN_DIM = vm["hidden"].as<int>();
+    ALIGN_DIM = vm["align"].as<int>();
+
+    string flavour = builder_flavour(vm);
+    VOCAB_SIZE_SRC = sd.size();
+    VOCAB_SIZE_TGT = sd.size(); /// use the same dictionary
+    nparallel = vm["nparallel"].as<int>();
+    mbsize = vm["mbsize"].as < int >();
+
+    if (vm.count("beamsearchdecode"))
+    {
+        beam_search_decode = vm["beamsearchdecode"].as<int>();
+    }
+
+    if (vm.count("devel")) {
+        cerr << "Reading dev data from " << vm["devel"].as<string>() << "...\n";
+        devel = read_audio_corpus_with_labels(vm["devel"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["byteswap"].as<bool>());
+//        devel_numturn2did = get_numturn2dialid(devel);
+    }
+
+    if (vm.count("testcorpus")) {
+        cerr << "Reading test corpus from " << vm["testcorpus"].as<string>() << "...\n";
+        testcorpus = read_audio_corpus_with_labels(vm["testcorpus"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["byteswap"].as<bool>());
+//        test_numturn2did = get_numturn2dialid(testcorpus);
+        if (vm.count("outputfile") == 0)
+        {
+            cerr << "missing --outputfile" << endl;
+            throw std::invalid_argument("missing --outputfile");
+        }
+
+        if (vm["ranker"].as<bool>())
+        {
+            cerr << "Reading training corpus from " << vm["train"].as<string>() << "...\n";
+            training = read_audio_corpus_with_labels(vm["train"].as<string>(), sd, kSRC_SOS, kSRC_EOS, vm["byteswap"].as<bool>());
+        }
+    }
+
+    string fname;
+    if (vm.count("parameters")) {
+        fname = vm["parameters"].as<string>();
+    }
+    else {
+        ostringstream os;
+        os << "attentionwithintention"
+            << '_' << LAYERS
+            << '_' << HIDDEN_DIM
+            << '_' << flavour
+            << "-pid" << getpid() << ".params";
+        fname = os.str();
+    }
+    cerr << "Parameters will be written to: " << fname << endl;
+
+    Model model;
+    Trainer* sgd = select_trainer<rnn_t, TrainProc>(vm, &model);
+
+    cerr << "%% Using " << flavour << " recurrent units" << endl;
+
+    std::vector<unsigned> dims = set_dims<rnn_t, TrainProc>(vm);
+
+    std::vector<unsigned int> layers;
+    layers.resize(5, LAYERS);
+    if (!vm.count("intentionlayers"))
+        layers[INTENTION_LAYER] = vm["intentionlayers"].as<size_t>();
+    map<string, cnn::real> additional_arg;
+    additional_arg["replicatehidden"] = nreplicate;
+    additional_arg["decoder_use_additional_input"] = 0;
+    rnn_t hred(model, layers, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, additional_arg, vm["scale"].as<cnn::real>());
+
+    if (vm.count("initialise"))
+    {
+        string fname = vm["initialise"].as<string>();
+        load_cnn_model(fname, &model, vm["inputformat"].as<string>() == "binary");
+
+        if (vm["convert-model-format"].as<bool>())
+        {
+            string ofname = vm["parameters"].as<string>();
+            save_cnn_model(ofname, &model, vm["outputformat"].as<string>() == "binary");
+            cout << "successfully converted data from " << fname << " to " << ofname << endl;
+            return 0;
+        }
+    }
+
+    ptrTrainer = new TrainProc();
+
+    if (vm["epochsize"].as<int>() >1 && !vm.count("test") && !vm.count("kbest") && !vm.count("testcorpus") && vm.count("train") > 0)
+    {   // split data into nparts and train
+        training.clear();
+        ptrTrainer->split_data_batch_train(vm["train"].as<string>(), 
+            vm["byteswap"].as<bool>(), model, hred, devel, *sgd, fname, 
+            vm["epochs"].as<int>(), vm["nparallel"].as<int>(), 
+            vm["epochsize"].as<int>(), vm["do_gradient_check"].as<bool>());
+    }
+    else
+    {
+        cerr << "cannot find an operation to the corresponding arguments to run" << endl;
+    }
+
+    delete sgd;
+    delete ptrTrainer;
+
+    return EXIT_SUCCESS;
+}

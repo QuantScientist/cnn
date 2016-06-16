@@ -168,6 +168,13 @@ public:
         bool do_padding, int kEOS,  /// do padding. if so, use kEOS as the padding symbol
         bool b_use_additional_feature
         );
+    /// on audio data
+    void batch_train(Model &model, Proc &am,
+        RealVectorAndLabelsCorpus &training, RealVectorAndLabelsCorpus &devel,
+        Trainer &sgd, string out_file, int max_epochs,
+        int nparallel, cnn::real &best,
+        bool sgd_update_epochs, bool do_gradient_check, 
+        bool b_inside_logic, int kEOS);
     void supervised_pretrain(Model &model, Proc &am, Corpus &training, Corpus &devel,
         Trainer &sgd, string out_file, cnn::real target_ppl, int min_diag_id,
         bool bcharlevel, bool nosplitdialogue);
@@ -188,6 +195,14 @@ public:
         bool bcharlevel, bool nosplitdialogue);
     void train(Model &model, Proc &am, TupleCorpus &training, Trainer &sgd, string out_file, int max_epochs);
     void split_data_batch_train(string train_filename, Model &model, Proc &am, Corpus &devel, Trainer &sgd, string out_file, int max_epochs, int nparallel, int epochsize, bool do_segmental_training, bool do_gradient_check, bool do_padding, bool b_use_additional_feature);
+
+    /// this is for training on real-valued observation
+    void split_data_batch_train(string train_filename, bool bByteSwap,
+        Model &model,
+        Proc &am, RealVectorAndLabelsCorpus &devel,
+        Trainer &sgd, string out_file,
+        int max_epochs, int nparallel, int epochsize,
+        bool do_gradient_check);
 
 
     void REINFORCEtrain(Model &model, Proc &am, Proc &am_agent_mirrow, Corpus &training, Corpus &devel, Trainer &sgd, string out_file, Dict & td, int max_epochs, int nparallel, cnn::real& largest_cost, cnn::real reward_baseline = 0.0, cnn::real threshold_prob_for_sampling = 1.0);
@@ -232,6 +247,9 @@ public:
     void nosegmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt,
         TrainingScores* scores, bool resetmodel = false, int init_turn_id = 0, Trainer* sgd = nullptr);
     void segmental_forward_backward(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores *scores, bool resetmodel, bool doGradientCheck = false, Trainer* sgd = nullptr);
+    void segmental_forward_backward(Model &model, Proc &am,
+        PRealVectorObsAndItsLabelsDialogue &v_v_dialogues, int nutt,
+        TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     pair<cnn::real, cnn::real> segmental_forward_backward_ranking(Model &model, Proc &am, PDialogue &v_v_dialogues, CandidateSentencesList &csls, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     void segmental_forward_backward_with_additional_feature(Model &model, Proc &am, PDialogue &v_v_dialogues, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd);
     void REINFORCE_nosegmental_forward_backward(Model &model, Proc &am, Proc &am_mirrow, PDialogue &v_v_dialogues, int nutt,
@@ -2297,6 +2315,57 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, PDia
 }
 
 template <class AM_t>
+void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am, 
+    PRealVectorObsAndItsLabelsDialogue &v_v_dialogues, int nutt, 
+    TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
+{
+    size_t turn_id = 0;
+    size_t i_turns = 0;
+    PTurn prv_turn;
+
+    if (verbose)
+        cout << "start segmental_forward_backward" << endl;
+
+    for (auto turn : v_v_dialogues)
+    {
+        ComputationGraph cg;
+
+        am.build_graph(turn, cg);
+
+        if (verbose) cout << "after graph build" << endl;
+
+        if (doGradientCheck
+            && turn_id > 3 // do gradient check after burn-in
+            )
+            CheckGrad(model, cg);
+
+        Tensor tv = cg.get_value(am.s2txent.i);
+        TensorTools::PushElementsToMemory(scores->training_score_current_location,
+            scores->training_score_buf_size,
+            scores->training_scores,
+            tv);
+
+        if (sgd != nullptr)
+        {
+            if (verbose)
+                cout << " start backprop " << endl;
+            cg.backward();
+            if (verbose)
+                cout << " done backprop " << endl;
+            sgd->update(am.twords);
+            if (verbose)
+                cout << " done update" << endl;
+        }
+
+        scores->swords += am.swords;
+        scores->twords += am.twords;
+
+        turn_id++;
+        i_turns++;
+    }
+}
+
+template <class AM_t>
 void TrainProcess<AM_t>::segmental_forward_backward_with_additional_feature(Model &model, AM_t &am, PDialogue &v_v_dialogues, int nutt, TrainingScores * scores, bool resetmodel, bool doGradientCheck, Trainer* sgd)
 {
     size_t turn_id = 0;
@@ -3224,6 +3293,152 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, Corpus &training, C
 }
 
 /**
+batch train on audio data
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am, 
+    RealVectorAndLabelsCorpus &training, RealVectorAndLabelsCorpus &devel,
+    Trainer &sgd, string out_file, int max_epochs, 
+    int nparallel, cnn::real &best,
+    bool sgd_update_epochs, bool do_gradient_check, bool b_inside_logic, int kEOS)
+{
+    if (verbose)
+        cout << "batch_train: ";
+    unsigned report_every_i = 50;
+    unsigned dev_every_i_reports = 1000;
+    unsigned si = training.size(); /// number of files in training
+    vector<unsigned> order(training.size());
+    for (unsigned i = 0; i < order.size(); ++i) order[i] = i;
+
+    bool first = true;
+    int report = 0;
+    unsigned lines = 0;
+
+    if (b_inside_logic)
+        reset_smoothed_ppl(ppl_hist);
+
+    int prv_epoch = -1;
+    vector<bool> v_selected(training.size(), false);  /// track if a dialgoue is used
+    size_t i_stt_diag_id = 0;
+
+    /// if no update of sgd in this function, need to train with all data in one pass and then return
+    if (sgd_update_epochs == false)
+    {
+        report_every_i = training.size();
+        si = 0;
+    }
+
+    while ((sgd_update_epochs && sgd.epoch < max_epochs) ||  /// run multiple passes of data
+        (!sgd_update_epochs && si < training.size()))  /// run one pass of the data
+    {
+        Timer iteration("completed in");
+        training_set_scores->reset();
+
+        PRealVectorObsAndItsLabelsDialogue v_dialogues;  // dialogues are orgnaized in each turn, in each turn, there are parallel data from all speakers
+
+        for (unsigned iter = 0; iter < report_every_i;) {
+            if (si == training.size()) {
+                si = 0;
+                if (first) { first = false; }
+                else if (sgd_update_epochs){
+                    sgd.update_epoch();
+                    lines -= training.size();
+                }
+            }
+
+            if (si % order.size() == 0) {
+                cerr << "**SHUFFLE\n";
+                /// shuffle number of turns
+                shuffle(order.begin(), order.end(), *rndeng);
+                i_stt_diag_id = 0;
+            }
+
+            PRealVectorObsAndItsLabelsDialogue prv_turn;
+            long i_stt_end = i_stt_diag_id + nparallel;
+            if (i_stt_end > order.size())
+                i_stt_end = order.size();
+            vector<unsigned int> i_sel_idx(order.begin() + i_stt_diag_id, order.begin() + i_stt_end);
+            size_t nutt = i_sel_idx.size();
+            if (nutt == 0)
+                break;
+
+            if (verbose)
+            {
+                cerr << "selected " << nutt << " :  ";
+                for (auto p : i_sel_idx)
+                    cerr << p << " ";
+                cerr << endl;
+            }
+
+            PRealVectorObsAndItsLabelsTurn vp;
+            for (auto & p : i_sel_idx)
+                vp.push_back(training[p]);
+            v_dialogues.push_back(vp);
+            segmental_forward_backward(model, am, v_dialogues, nutt, 
+                training_set_scores, false, do_gradient_check, &sgd);
+               
+            si += nutt;
+            lines += nutt;
+            iter += nutt;
+        }
+
+        training_set_scores->compute_score();
+
+        sgd.status();
+        iteration.WordsPerSecond(training_set_scores->twords + training_set_scores->swords);
+        cerr << "\n***Train " << (lines / (cnn::real)training.size()) * 100 << " %100 of epoch[" << sgd.epoch << "] E = " << (training_set_scores->dloss / training_set_scores->twords) << " ppl=" << exp(training_set_scores->dloss / training_set_scores->twords) << ' ';
+
+
+//        vector<SentencePair> vs;
+//        for (auto&p : v_dialogues)
+//            vs.push_back(p[0]);
+//        vector<SentencePair> vres;
+//        am.respond(vs, vres, sd);
+
+        // show score on dev data?
+        report++;
+
+        /*
+        if (b_inside_logic && devel.size() > 0 && (floor(sgd.epoch) != prv_epoch
+            || (report % dev_every_i_reports == 0
+            || fmod(lines, (cnn::real)training.size()) == 0.0)))
+        {
+            cnn::real ddloss = 0;
+            cnn::real ddchars_s = 0;
+            cnn::real ddchars_t = 0;
+
+            ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
+
+            ddloss = smoothed_ppl(ddloss, ppl_hist);
+            if (ddloss < best) {
+                best = ddloss;
+
+                save_cnn_model(out_file, &model, true);
+
+            }
+            else{
+                sgd.eta0 *= 0.5; /// reduce learning rate
+                sgd.eta *= 0.5; /// reduce learning rate
+            }
+            cerr << "\n***DEV [epoch=" << (lines / (cnn::real)training.size()) << "] E = " << (ddloss / ddchars_t) << " ppl=" << exp(ddloss / ddchars_t) << ' ';
+        }
+        */
+        
+        prv_epoch = floor(sgd.epoch);
+
+        if (sgd_update_epochs == false)
+        {
+            /// because there is no update on sgd epoch, this loop can run forever. 
+            /// so just run one iteration and quit
+            break;
+        }
+        else{
+            save_cnn_model(out_file + "e" + boost::lexical_cast<string>(sgd.epoch), &model, true);
+        }
+    }
+}
+
+/**
 train ranking models
 */
 template <class AM_t>
@@ -3962,6 +4177,78 @@ void TrainProcess<AM_t>::split_data_batch_train(string train_filename, Model &mo
                 }
             }
 #endif
+        }
+
+        trial++;
+    }
+}
+
+/**
+since the tool loads data into memory and that can cause memory exhaustion, this function do sampling of data for each epoch.
+*/
+template <class AM_t>
+void TrainProcess<AM_t>::split_data_batch_train(string train_filename, 
+    bool bByteSwap, Model &model,
+    AM_t &am, RealVectorAndLabelsCorpus &devel,
+    Trainer &sgd, string out_file,
+    int max_epochs, int nparallel, int epochsize, 
+    bool do_gradient_check)
+{
+    RealVectorAndLabelsCorpus training;// = dr.corpus();
+
+    cnn::real largest_cost = std::numeric_limits<cnn::real>::max();
+    cnn::real largest_dev_cost = std::numeric_limits<cnn::real>::max();
+
+    reset_smoothed_ppl(ppl_hist);
+
+    AcousticDataReader dr(train_filename, bByteSwap);
+    int trial = 0;
+    dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
+    training = dr.corpus();
+
+    save_cnn_model(out_file, &model, true);
+
+    while (sgd.epoch < max_epochs)
+    {
+        Timer this_epoch("this epoch completed in");
+
+        batch_train(model, am, training, devel, sgd, out_file, 1, nparallel, largest_cost, false, do_gradient_check, false, kSRC_EOS);
+
+        dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
+        training = dr.corpus();
+  
+        if (training.size() == 0)
+        {
+            dr.restart();
+            dr.read_corpus(sd, kSRC_SOS, kSRC_EOS, epochsize);
+            training = dr.corpus();  /// copy the data from data thread to the data to be used in the main thread
+       
+#ifndef DEBUG
+            save_cnn_model(out_file + ".i" + boost::lexical_cast<string>(sgd.epoch), &model, true);
+#endif
+            sgd.update_epoch();
+
+            /*
+#ifndef DEBUG
+            if (devel.size() > 0)
+            {
+                cnn::real ddloss, ddchars_s, ddchars_t;
+                ddloss = testPPL(model, am, devel, devel_numturn2did, out_file + ".dev.log", segmental_training, ddchars_s, ddchars_t);
+
+                ddloss = smoothed_ppl(ddloss, ppl_hist);
+                if (ddloss < largest_dev_cost) {
+                    /// save the model with the best performance on the dev set
+                    largest_dev_cost = ddloss;
+
+                    save_cnn_model(out_file, &model, true);
+                }
+                else{
+                    sgd.eta0 *= 0.5; /// reduce learning rate
+                    sgd.eta *= 0.5; /// reduce learning rate
+                }
+            }
+#endif
+            */
         }
 
         trial++;
