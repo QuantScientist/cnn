@@ -43,8 +43,9 @@ struct ConstParameterNode : public Node {
 
 // represents specified (not learned) inputs to the network
 struct InputNode : public Node {
-  explicit InputNode(const Dim& d, const std::vector<cnn::real>& dat) : dim(d), data(dat), pdata(&data) {}
-  explicit InputNode(const Dim& d, const std::vector<cnn::real>* pdat) : dim(d), data(), pdata(pdat) {}
+  explicit InputNode(const Dim& d, const std::vector<cnn::real>& dat) : dim(d), data(dat), pdata(&data), ptrdata(&dat.front()) {}
+  explicit InputNode(const Dim& d, const std::vector<cnn::real>* pdat) : dim(d), data(), pdata(pdat), ptrdata(&(pdat->front())) {}
+  explicit InputNode(const Dim& d, const cnn::real* pdat) : dim(d), data(), pdata(), ptrdata(pdat) {}
   std::string as_string(const std::vector<std::string>& arg_names) const override;
   Dim dim_forward(const std::vector<Dim>& xs) const override;
   virtual bool supports_multibatch() const override { return true; }
@@ -57,6 +58,7 @@ struct InputNode : public Node {
   Dim dim;
   const std::vector<cnn::real> data;
   const std::vector<cnn::real>* pdata;
+  const cnn::real * ptrdata;
 };
 
 // represents specified (not learned) inputs to the network
