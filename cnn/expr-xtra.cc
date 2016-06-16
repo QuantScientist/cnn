@@ -267,6 +267,17 @@ vector<unsigned> each_sentence_length(const vector<vector<int>>& source)
     return slen;
 }
 
+/// get the number of samples, notice that the size of source needs to be divided
+/// by the feature dimension in order to get the number of samples
+vector<unsigned> each_sentence_length(const vector<vector<cnn::real>>& source, unsigned featdim)
+{
+    /// get each sentence length
+    vector<unsigned> slen;
+    for (auto p : source)
+        slen.push_back(p.size() / featdim);
+    return slen;
+}
+
 bool similar_length(const vector<vector<int>>& source)
 {
     int imax = -1;

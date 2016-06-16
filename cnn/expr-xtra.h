@@ -63,6 +63,7 @@ vector<Expression> average_embedding(unsigned & slen, const vector<vector<int>>&
 vector<Expression> average_embedding(const vector<unsigned>& slen, int featdim, const vector<Expression>& vsrc);
 
 vector<unsigned> each_sentence_length(const vector<vector<int>>& source);
+vector<unsigned> each_sentence_length(const vector<vector<cnn::real>>& source, unsigned feature_dim);
 
 bool similar_length(const vector<vector<int>>& source);
 
@@ -264,6 +265,82 @@ vector<Expression> backward_directional(const vector<Expression>& source, Comput
     size_t ik = 0;
     for (int t = slen - 1; t >= 0; --t) {
         src_bwd[ik++] = encoder_bwd.add_input(source[t]); 
+    }
+
+    return src_bwd;
+}
+
+/**
+observation is real-valued vector
+*/
+template<class Builder>
+vector<Expression> backward_directional(unsigned & slen, const vector<vector<cnn::real>>& source, 
+    ComputationGraph& cg, vector<cnn::real>& zero,
+    Builder& encoder_bwd, unsigned int feat_dim, unsigned int encoder_dim, Expression trns_src2hidden)
+{
+    size_t ly;
+    unsigned int nutt = source.size();
+    /// get the maximum length of utternace from all speakers
+    vector<int> vlen;
+    bool bsamelength = true;
+    slen = 0;
+    for (auto p : source)
+    {
+        unsigned k = p.size() / feat_dim;
+        slen = (slen < k) ? k : slen;
+        vlen.push_back(k);
+        if (slen != k)
+        {
+            bsamelength = false;
+        }
+    }
+
+    std::vector<Expression> source_embeddings;
+
+    std::vector<Expression> src_bwd(slen);
+
+    Expression i_x_t;
+
+    //// the initial hidden state, no data has observed yet
+    vector<Expression> v_h0 = encoder_bwd.final_s();
+    vector<vector<Expression>> v_each_h0 = rnn_h0_for_each_utt(v_h0, nutt, encoder_dim);
+
+    vector<Expression> v_ht = v_h0;
+    size_t ik = 0;
+    for (int t = slen - 1; t >= 0; --t) {
+        vector<vector<Expression>> vhh = rnn_h0_for_each_utt(v_ht, nutt, encoder_dim);
+        vector<Expression> vm;
+        vector<vector<Expression>> vhh_sub = vhh;
+
+        v_ht.clear();
+
+        for (size_t k = 0; k < nutt; k++)
+        {
+            int j = vlen[k] - t - 1;
+            if (j >= 0)
+            {
+                int this_pos = (vlen[k] - 1 - j) * feat_dim;
+                const cnn::real * this_ptr = (&source[k].front()) + this_pos;
+                vm.push_back(input(cg, { feat_dim, 1 }, this_ptr));
+            }
+            else
+            {
+                vm.push_back(input(cg, { feat_dim }, &zero));
+                for (ly = 0; ly < v_h0.size(); ly++)
+                    vhh_sub[ly][k] = v_each_h0[ly][k];
+            }
+        }
+
+        for (ly = 0; ly < v_h0.size(); ly++)
+        {
+            v_ht.push_back(concatenate_cols(vhh_sub[ly]));
+        }
+
+        i_x_t = trns_src2hidden * concatenate_cols(vm);
+        src_bwd[t] = encoder_bwd.add_input(v_ht, i_x_t);
+
+        v_ht = encoder_bwd.final_s();
+        ik++;
     }
 
     return src_bwd;
