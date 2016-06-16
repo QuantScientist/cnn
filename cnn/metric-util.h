@@ -174,7 +174,7 @@ private:
         for (int i = 0; i < NgramOrder; i++)
         {
             cnn::real x = stats[m_matchIndex + i] / (stats[m_hypIndex + i] + 0.001);
-            prec *= pow(x, 1.0 / (cnn::real)NgramOrder);
+            prec *= (cnn::real)pow(x, 1.0 / (cnn::real)NgramOrder);
         }
         return prec;
     }
