@@ -59,6 +59,7 @@ struct ComputationGraph {
   VariableIndex add_input(const real* ps);  // add pointer to scalar
   VariableIndex add_input(const Dim& d, const std::vector<cnn::real>& pdata);
   VariableIndex add_input(const Dim& d, const std::vector<cnn::real>* pdata);
+  VariableIndex add_input(const Dim& d, const real* ps);
 
   // REFERENCES
   // the computational network will pull references in from the user's data pointer
