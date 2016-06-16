@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <tuple>
+#include <stdexcept>
 #include <functional>
 #include <boost/system/config.hpp>
 #include <boost/locale.hpp>
@@ -652,7 +653,9 @@ vector<cnn::real> read_mfcc(string featfilename, bool bByteSwap)
 
     fp = fopen(featfilename.c_str(), "rb");
     if (fp == nullptr) return obs;
-    fread(&hdr, 1, sizeof(stHTKFileHeader), fp);
+    if (sizeof(stHTKFileHeader) != fread(&hdr, 1, sizeof(stHTKFileHeader), fp))
+    	throw ("HTK header reader error ");
+
     if (bByteSwap)
     {
         swap4(&hdr.nsamples);
@@ -664,7 +667,8 @@ vector<cnn::real> read_mfcc(string featfilename, bool bByteSwap)
     int featdim = hdr.sampsize / sizeof(float);
     obs.resize(hdr.nsamples * featdim);
     tmpdat = new float[featdim * hdr.nsamples];
-    fread(tmpdat, featdim * hdr.nsamples, sizeof(float), fp);
+    if (sizeof(float) * featdim * hdr.nsamples != fread(tmpdat, featdim * hdr.nsamples, sizeof(float), fp))
+	throw ("HTK data read error");
 
     for (int i = 0; i < hdr.nsamples; i++)
     {
@@ -709,7 +713,7 @@ RealVectorAndLabelsCorpus read_audio_corpus_with_labels(const string &filename, 
     trim_right(line);
     if (line != "#!MLF!#")
     {
-        throw exception("expect #!MLF!#");
+        throw ("expect #!MLF!#");
     }
 
     while (getline(ss, line)) {
@@ -868,7 +872,6 @@ TupleCorpus read_tuple_corpus(const string &filename, Dict& sd, int kSRC_SOS, in
 
     int prv_diagid = -1;
     int lc = 0, stoks = 0, ttoks = 0;
-    long min_diag_id = 99999;
     while (getline(in, line)) 
     {
         trim_left(line);
@@ -1412,7 +1415,7 @@ FBCorpus read_facebook_qa_corpus(const string &filename, size_t& diag_id, Dict& 
     StatementsQuery sq;
     vector<Sentence> statements;
 
-    int prv_turn = 9999, lc = 0, stoks = 0, ttoks = 0;
+    int prv_turn = 9999, lc = 0, ttoks = 0;
 
     while (getline(in, line)) {
         trim_left(line);
@@ -1651,7 +1654,7 @@ void AcousticDataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long 
 
     m_Corpus.clear();
 
-    int lc = 0, stoks = 0, ttoks = 0;
+    int lc = 0, ttoks = 0;
 
     long iln = 0;
     while (getline(m_ifs, line) && iln < part_size) {

@@ -282,17 +282,12 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<cnn
     unsigned int nutt = source.size();
     /// get the maximum length of utternace from all speakers
     vector<int> vlen;
-    bool bsamelength = true;
     slen = 0;
     for (auto p : source)
     {
         unsigned k = p.size() / feat_dim;
         slen = (slen < k) ? k : slen;
         vlen.push_back(k);
-        if (slen != k)
-        {
-            bsamelength = false;
-        }
     }
 
     std::vector<Expression> source_embeddings;
