@@ -27,6 +27,7 @@
 #include <boost/regex.hpp>
 #include <boost/lexical_cast.hpp>
 #include <tuple>
+#include <stdlib.h>
 
 using namespace cnn;
 using namespace std;
@@ -604,6 +605,137 @@ Corpus read_corpus(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS,
     return corpus;
 }
 
+// short, int and float
+static void swap2(void *v)
+{
+    char    in[2], out[2];
+    memcpy(in, v, 2);
+    out[0] = in[1];
+    out[1] = in[0];
+    memcpy(v, out, 2);
+}
+
+/// int
+static void swap4(void *v)
+{
+    char    in[4], out[4];
+    memcpy(in, v, 4);
+    out[0] = in[3];
+    out[1] = in[2];
+    out[2] = in[1];
+    out[3] = in[0];
+    memcpy(v, out, 4);
+}
+
+// double
+static void swap8(void *v)
+{
+    char    in[8], out[8];
+    memcpy(in, v, 8);
+    out[0] = in[7];
+    out[1] = in[6];
+    out[2] = in[5];
+    out[3] = in[4];
+    out[4] = in[3];
+    out[5] = in[2];
+    out[6] = in[1];
+    out[7] = in[0];
+    memcpy(v, out, 8);
+}
+
+vector<cnn::real> read_mfcc(string featfilename, bool bByteSwap)
+{
+    vector<cnn::real> obs; 
+    FILE * fp; 
+    stHTKFileHeader hdr;
+    float *tmpdat;
+
+    fp = fopen(featfilename.c_str(), "rb");
+    if (fp == nullptr) return obs;
+    fread(&hdr, 1, sizeof(stHTKFileHeader), fp);
+    if (bByteSwap)
+    {
+        swap4(&hdr.nsamples);
+        swap4(&hdr.sampperiod);
+        swap2(&hdr.sampkind);
+        swap2(&hdr.sampsize);
+    }
+
+    int featdim = hdr.sampsize / sizeof(float);
+    obs.resize(hdr.nsamples * featdim);
+    tmpdat = new float[featdim * hdr.nsamples];
+    fread(tmpdat, featdim * hdr.nsamples, sizeof(float), fp);
+
+    for (int i = 0; i < hdr.nsamples; i++)
+    {
+        for (int k = 0; k < featdim; k++)
+        {
+            if (bByteSwap)
+            {
+                if (sizeof(float) == 8 * sizeof(char))
+                    swap8(&tmpdat[i * featdim + k]);
+                if (sizeof(float) == 4 * sizeof(char))
+                    swap4(&tmpdat[i * featdim + k]);
+            }
+            obs[i * featdim + k] = tmpdat[i * featdim + k];
+        }
+    }
+    fclose(fp);
+    delete tmpdat;
+    return obs;
+}
+
+/// read audio corpus with labels
+/// its file format is HTK MLF format
+RealVectorAndLabelsCorpus read_audio_corpus_with_labels(const string &filename, Dict& sd, int kSRC_SOS, int kSRC_EOS, bool bByteSwap)
+{
+    long l_file_size = get_file_size(filename);
+    char * temp_buf = new char[l_file_size];
+
+    ifstream in(filename.c_str(), ifstream::binary);
+    in.read(temp_buf, l_file_size);
+    in.close();
+
+    stringstream ss;
+    ss << temp_buf;
+
+    string line;
+
+    RealVectorAndLabelsCorpus corpus;
+    int lc = 0, ttoks = 0;
+
+    getline(ss, line);
+    trim_left(line);
+    trim_right(line);
+    if (line != "#!MLF!#")
+    {
+        throw exception("expect #!MLF!#");
+    }
+
+    while (getline(ss, line)) {
+        trim_left(line);
+        trim_right(line);
+        if (line.size() == 0)
+            break;
+        string featfilename = line.substr(1, line.length() - 2);
+        vector<cnn::real> dat = read_mfcc(featfilename, bByteSwap);
+
+        ++lc;
+        Sentence target;
+        read_mlf_labels(ss, &target, &sd);
+
+        RealVectorObsAndItsLabels pdat = std::make_pair(dat, target);
+        corpus[lc] = pdat;
+
+        ttoks += pdat.second.size();
+    }
+
+   std::cerr << lc << " feature files, " << ttoks << " tokens (s & t), " << sd.size() << " types\n";
+
+    delete temp_buf;
+    return corpus;
+}
+
 /**
 part_size : the number of lines to read. if smaller than 0, then read all lines. 
 */
@@ -777,6 +909,20 @@ TupleCorpus read_tuple_corpus(const string &filename, Dict& sd, int kSRC_SOS, in
 SentenceTuple make_triplet_sentence(const Sentence& m1, const Sentence& m2, const Sentence& m3)
 {
     return make_triplet<Sentence>(m1, m2, m3);
+}
+
+void read_mlf_labels(stringstream & ss, std::vector<int>* t, Dict* td)
+{
+    string line;
+    while (getline(ss, line)) {
+        trim_left(line);
+        trim_right(line);
+
+        if (line == ".")
+            break;
+
+        t->push_back(td->Convert(line));
+    }
 }
 
 string MultiTurnsReadSentencePair(const std::string& line, std::vector<int>* s, Dict* sd, std::vector<int>* t, Dict* td, bool backofftounk, int kSRC_SOS, int kSRC_EOS, bool bcharacter)
@@ -1499,7 +1645,40 @@ void DataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_siz
     cerr << "from corpus " << m_Filename << ": " << lc << " lines, " << stoks << " & " << ttoks << " tokens (s & t), " << sd.size() << " & " << sd.size() << " types\n";
 }
 
-bool is_nan( const cnn::real & value)
+void AcousticDataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long part_size)
+{
+    string line;
+
+    m_Corpus.clear();
+
+    int lc = 0, stoks = 0, ttoks = 0;
+
+    long iln = 0;
+    while (getline(m_ifs, line) && iln < part_size) {
+        trim_left(line);
+        trim_right(line);
+        if (line == "#!MLF!#")
+            continue;
+        if (line.size() == 0)
+            break;
+        string featfilename = line.substr(1, line.length() - 2);
+        vector<cnn::real> dat = read_mfcc(featfilename, m_bByteSwap);
+        if (dat.size() == 0)
+            break;
+        Sentence target;
+        read_mlf_labels(m_ifs, &target, &sd);
+
+        RealVectorObsAndItsLabels pdat = std::make_pair(dat, target);
+        m_Corpus[lc] = pdat;
+
+        ttoks += pdat.second.size();
+        ++lc;
+    }
+
+    cerr << "from corpus " << m_Filename << ": " << lc << " lines, " << ttoks << " tokens (t), " << sd.size() << " types\n";
+}
+
+bool is_nan(const cnn::real & value)
 {
     return value != value;
 }
