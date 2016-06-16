@@ -322,6 +322,53 @@ namespace cnn {
             turnid++;
             return errs;
         };
+    
+        std::vector<int> decode(const std::vector<cnn::real> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            const int sos_sym = tdict.Convert("S");
+            const int eos_sym = tdict.Convert("!S");
+
+            nutt = 1;
+
+            std::vector<int> target;
+            target.push_back(sos_sym);
+            int t = 0;
+            Sentence prv_response;
+
+            start_new_instance(vector<vector<cnn::real>>(nutt, source), cg);
+
+            while (target.back() != eos_sym)
+            {
+                vector<int> vobs(1, target.back());
+
+                Expression i_y_t = decoder_step(vobs, cg, nullptr);
+
+                Expression ydist = softmax(i_y_t);
+
+                // find the argmax next word (greedy)
+                unsigned w = 0;
+                auto dist = get_value(ydist, cg); 
+                auto pr_w = dist[w];
+                for (unsigned x = 1; x < dist.size(); ++x) {
+                    if (dist[x] > pr_w) {
+                        w = x;
+                        pr_w = dist[x];
+                    }
+                }
+
+                // break potential infinite loop
+                if (t > 100) {
+                    w = eos_sym;
+                    pr_w = dist[w];
+                }
+
+                t += 1;
+                target.push_back(w);
+            }
+
+            return target;
+        }
+
     };
 
 } // namespace cnn

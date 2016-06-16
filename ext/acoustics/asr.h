@@ -85,5 +85,44 @@ public:
         return object;
     }
 
+    string respond(const vector<cnn::real>& obs, Dict & td)
+    {
+        string shuman;
+        string response;
+        unsigned lines = 0;
+
+        vector<int> decode_output;
+
+        ComputationGraph cg;
+        s2tmodel.reset();
+        decode_output = s2tmodel.decode(obs, cg, td);
+
+        if (verbose)
+        {
+            cout << "Agent: ";
+            response = "";
+        }
+
+        for (auto pp : decode_output)
+        {
+            if (verbose)
+            {
+                cout << td.Convert(pp) << " ";
+            }
+
+            if (pp != kSRC_EOS && pp != kSRC_SOS)
+                response = response + td.Convert(pp) + " ";
+
+            if (verbose)
+            {
+                cout << " ";
+            }
+        }
+
+        if (verbose)
+            cout << endl;
+        return response;
+    }
+
 };
 
