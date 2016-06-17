@@ -654,7 +654,7 @@ vector<cnn::real> read_mfcc(string featfilename, bool bByteSwap)
     fp = fopen(featfilename.c_str(), "rb");
     if (fp == nullptr) return obs;
     if (sizeof(stHTKFileHeader) != fread(&hdr, 1, sizeof(stHTKFileHeader), fp))
-    	throw ("HTK header reader error ");
+        	throw ("HTK header reader error ");
 
     if (bByteSwap)
     {
@@ -667,8 +667,8 @@ vector<cnn::real> read_mfcc(string featfilename, bool bByteSwap)
     int featdim = hdr.sampsize / sizeof(float);
     obs.resize(hdr.nsamples * featdim);
     tmpdat = new float[featdim * hdr.nsamples];
-    if (sizeof(float) * featdim * hdr.nsamples != fread(tmpdat, featdim * hdr.nsamples, sizeof(float), fp))
-	throw ("HTK data read error");
+    memset((void*)tmpdat, 0, featdim * hdr.nsamples * sizeof(float));
+    size_t ret_size = fread(tmpdat, sizeof(float), featdim * hdr.nsamples, fp);
 
     for (int i = 0; i < hdr.nsamples; i++)
     {

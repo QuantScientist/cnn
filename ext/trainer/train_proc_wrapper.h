@@ -1058,7 +1058,6 @@ int audio_main_body(variables_map vm, size_t nreplicate = 0)
     kSRC_EOS = sd.Convert("</s>");
 #endif
     verbose = vm.count("verbose");
-    g_train_on_turns = vm["turns"].as<int>();
 
     typedef vector<int> Sentence;
     typedef pair<Sentence, Sentence> SentencePair;
