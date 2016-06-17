@@ -79,8 +79,14 @@ public:
 
 //        s2tmodel.serialise_context(cg);
 
-        assert(twords == s2tmodel.tgt_words);
-        assert(swords == s2tmodel.src_feature_number);
+        if (twords != s2tmodel.tgt_words || swords != s2tmodel.src_feature_number)
+        {
+            string msg = "from corpus: twords = " + boost::lexical_cast<string>(twords) + " obs size = " + boost::lexical_cast<string>(swords);
+            string omsg = " from model builder: lables = " + boost::lexical_cast<string>(s2tmodel.tgt_words) + " obs size = " + boost::lexical_cast<string>(s2tmodel.src_feature_number); 
+            string nmsg = " possible reason : embedding dimension in the model and the obs feature dimension mismatch";
+
+            throw(msg + omsg + nmsg);
+        }
 
         return object;
     }
