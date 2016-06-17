@@ -1656,8 +1656,7 @@ void AcousticDataReader::read_corpus(Dict& sd, int kSRC_SOS, int kSRC_EOS, long 
 
     int lc = 0, ttoks = 0;
 
-    long iln = 0;
-    while (getline(m_ifs, line) && iln < part_size) {
+    while (getline(m_ifs, line) && lc < part_size) {
         trim_left(line);
         trim_right(line);
         if (line == "#!MLF!#")
