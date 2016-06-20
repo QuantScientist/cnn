@@ -268,7 +268,7 @@ namespace cnn {
             Expression i_output = i_R * i_h_t;
 //            Expression i_comb_max_entropy = i_output + i_max_ent_obs;
 
-            return i_output + i_bias;
+            return i_output + i_bias_mb;
         }
 
         vector<Expression> build_graph(

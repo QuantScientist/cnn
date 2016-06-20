@@ -3380,6 +3380,7 @@ void TrainProcess<AM_t>::batch_train(Model &model, AM_t &am,
             si += nutt;
             lines += nutt;
             iter += nutt;
+            i_stt_diag_id = i_stt_end;
         }
 
         training_set_scores->compute_score();

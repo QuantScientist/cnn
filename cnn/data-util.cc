@@ -724,6 +724,9 @@ RealVectorAndLabelsCorpus read_audio_corpus_with_labels(const string &filename, 
         string featfilename = line.substr(1, line.length() - 2);
         vector<cnn::real> dat = read_mfcc(featfilename, bByteSwap);
 
+        if (dat.size() == 0)
+            break;
+
         ++lc;
         Sentence target;
         read_mlf_labels(ss, &target, &sd);
