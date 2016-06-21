@@ -2330,6 +2330,7 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am,
     {
         ComputationGraph cg;
 
+        am.reset();
         am.build_graph(turn, cg);
 
         if (verbose) cout << "after graph build" << endl;

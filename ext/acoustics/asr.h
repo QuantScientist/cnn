@@ -68,7 +68,6 @@ public:
             swords += p.first.size();
         }
 
-        s2tmodel.reset();
         object = s2tmodel.build_graph(insent, osent, cg);
         if (verbose)
             display_value(object.back(), cg, "object");
@@ -89,6 +88,11 @@ public:
         }
 
         return object;
+    }
+
+    void reset()
+    {
+        s2tmodel.reset();
     }
 
     string respond(const vector<cnn::real>& obs, Dict & td)
