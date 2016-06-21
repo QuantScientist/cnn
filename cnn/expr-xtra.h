@@ -280,6 +280,7 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<cnn
 {
     size_t ly;
     unsigned int nutt = source.size();
+    vector<cnn::real> vfeat(feat_dim, 0.0);
     /// get the maximum length of utternace from all speakers
     vector<int> vlen;
     slen = 0;
@@ -316,7 +317,8 @@ vector<Expression> backward_directional(unsigned & slen, const vector<vector<cnn
             {
                 int this_pos = (vlen[k] - 1 - j) * feat_dim;
                 const cnn::real * this_ptr = (&source[k].front()) + this_pos;
-                vm.push_back(input(cg, { feat_dim, 1 }, this_ptr));
+                vfeat.assign(this_ptr, this_ptr + feat_dim); 
+                vm.push_back(input(cg, { feat_dim, 1 }, vfeat));
             }
             else
             {

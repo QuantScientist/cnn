@@ -78,18 +78,18 @@ Dim InputNode::dim_forward(const vector<Dim>& xs) const {
 void InputNode::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
   assert(xs.size() == 0);
 #if HAVE_CUDA
-//  cudaMemcpyAsync(fx.v, &pdata->front(), dim.size() * sizeof(cnn::real), cudaMemcpyHostToDevice);
-  cudaMemcpyAsync(fx.v, ptrdata, dim.size() * sizeof(cnn::real), cudaMemcpyHostToDevice);
+  //cudaMemcpyAsync(fx.v, &pdata->front(), dim.size() * sizeof(cnn::real), cudaMemcpyHostToDevice);
+    cudaMemcpyAsync(fx.v, &data.front(), dim.size() * sizeof(cnn::real), cudaMemcpyHostToDevice);
 #else
   // TODO memcpy is only necessary if pdata->front() points to an unaligned location
   // need to compute this value
   bool is_input_address_aligned = false;
   if (!is_input_address_aligned) {
 //      memcpy(fx.v, &pdata->front(), dim.size() * sizeof(cnn::real));
-    memcpy(fx.v, ptrdata, dim.size() * sizeof(cnn::real));
+    memcpy(fx.v, &data.front(), dim.size() * sizeof(cnn::real));
   } else {
 //      fx.v = const_cast<cnn::real*>(&pdata->front());
-    fx.v = const_cast<cnn::real*>(ptrdata);
+    fx.v = const_cast<cnn::real*>(&data.front());
   }
 #endif
   fx.m_device_id = device_id;

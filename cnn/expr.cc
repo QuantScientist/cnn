@@ -11,7 +11,6 @@ Expression input(ComputationGraph& g, cnn::real s) { return Expression(&g, g.add
 Expression input(ComputationGraph& g, const cnn::real *ps) { return Expression(&g, g.add_input(ps)); }
 Expression input(ComputationGraph& g, const Dim& d, const std::vector<cnn::real>& pdata) { return Expression(&g, g.add_input(d, pdata)); }
 Expression input(ComputationGraph& g, const Dim& d, const std::vector<cnn::real>* pdata) { return Expression(&g, g.add_input(d, pdata)); }
-Expression input(ComputationGraph& g, const Dim& d, const cnn::real* pdata) { return Expression(&g, g.add_input(d, pdata)); }
 Expression reference(ComputationGraph& g, const Dim& d, const cnn::real* pdata) { return Expression(&g, g.add_reference(d, pdata)); }
 Expression const_parameter(ComputationGraph& g, Parameters* p) { return Expression(&g, g.add_const_parameters(p)); }
 Expression parameter(ComputationGraph& g, Parameters* p) { return Expression(&g, g.add_parameters(p)); }
