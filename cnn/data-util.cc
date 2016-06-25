@@ -737,7 +737,7 @@ RealVectorAndLabelsCorpus read_audio_corpus_with_labels(const string &filename, 
         ttoks += pdat.second.size();
     }
 
-   std::cerr << lc << " feature files, " << ttoks << " tokens (s & t), " << sd.size() << " types\n";
+    std::cerr << lc << " feature files, " << ttoks << " tokens (s & t), " << sd.size() << " types\n";
 
     delete temp_buf;
     return corpus;
