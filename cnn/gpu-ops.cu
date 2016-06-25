@@ -13,6 +13,11 @@
 namespace cnn {
 namespace gpu {
 
+template <typename T>
+struct ScaleFactorTypeMap { typedef T Type; };
+template <> struct ScaleFactorTypeMap<cnn::real>  { typedef float Type; };
+typedef typename ScaleFactorTypeMap<cnn::real>::Type scaling_type;
+
 // this wraps kernel dispatches for various operations (preventing us from
 // having to compile a version of nodes.cc with NVCC)
 
@@ -755,6 +760,491 @@ void kMaxPooling_backward(const int n, const int m, const cnn::real *xs, const i
             }
         }
     }
+}
+
+// demonstrate different ways of setting tensor descriptor
+//#define SIMPLE_TENSOR_DESCRIPTOR
+#define ND_TENSOR_DESCRIPTOR
+void setTensorDesc(cudnnTensorDescriptor_t& tensorDesc,
+    cudnnTensorFormat_t& tensorFormat,
+    cudnnDataType_t& dataType,
+    int n,
+    int c,
+    int h,
+    int w)
+{
+#if SIMPLE_TENSOR_DESCRIPTOR
+    CHECK_CUDNN(cudnnSetTensor4dDescriptor(tensorDesc,
+        tensorFormat,
+        dataType,
+        n, c,
+        h,
+        w));
+#elif defined(ND_TENSOR_DESCRIPTOR)
+    const int nDims = 4;
+    int dimA[nDims] = { n, c, h, w };
+    int strideA[nDims] = { c*h*w, h*w, w, 1 };
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(tensorDesc,
+        dataType,
+        4,
+        dimA,
+        strideA));
+#else
+    CHECK_CUDNN(cudnnSetTensor4dDescriptorEx(tensorDesc,
+        dataType,
+        n, c,
+        h, w,
+        c*h*w, h*w, w, 1));
+#endif
+}
+
+void addBias(const cudnnTensorDescriptor_t dstTensorDesc,
+    const cnn::real* bias_d,
+    int c, cnn::real *data,
+    cudnnTensorDescriptor_t biasTensorDesc,
+    cudnnTensorFormat_t tensorFormat,
+    cudnnDataType_t dataType)
+{
+    setTensorDesc(biasTensorDesc, tensorFormat, dataType, 1, c, 1, 1);
+
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(1);
+    CHECK_CUDNN(cudnnAddTensor(cudnn_handle,
+        &alpha, biasTensorDesc,
+        bias_d,
+        &beta,
+        dstTensorDesc,
+        data));
+}
+
+void convBackwardBias(const cudnnTensorDescriptor_t dstTensorDesc,
+    const cnn::real* d_dst, 
+    cudnnTensorDescriptor_t biasTensorDesc,
+    cnn::real *d_bias)
+{
+
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(1);
+    CHECK_CUDNN(cudnnConvolutionBackwardBias(cudnn_handle,
+        &alpha, 
+        dstTensorDesc,
+        d_dst,
+        &beta,
+        biasTensorDesc,
+        d_bias));
+}
+
+void convoluteForwardOutputSize(const int conv_inputs, 
+    const int conv_outputs, const int conv_kernel_dim_x,
+    const int conv_kernel_dim_y,
+    int* n, int* c, int* h, int* w,
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnTensorFormat_t tensorFormat,
+    cudnnDataType_t dataType,
+    cudnnFilterDescriptor_t filterDesc,
+    cudnnConvolutionDescriptor_t convDesc)
+{
+
+    setTensorDesc(srcTensorDesc, tensorFormat, dataType, *n, *c, *h, *w);
+
+    const int tensorDims = 4;
+    int tensorOuputDimA[tensorDims] = { *n, *c, *h, *w };
+    const int filterDimA[tensorDims] = { conv_outputs, conv_inputs,
+        conv_kernel_dim_x, conv_kernel_dim_y };
+
+    CHECK_CUDNN(cudnnSetFilterNdDescriptor(filterDesc,
+            dataType,
+            CUDNN_TENSOR_NCHW,
+            tensorDims,
+            filterDimA));
+
+    const int convDims = 2;
+    int padA[convDims] = { 0, 0 };
+    int filterStrideA[convDims] = { 1, 1 };
+    int upscaleA[convDims] = { 1, 1 };
+    cudnnDataType_t  convDataType = dataType;
+    if (dataType == CUDNN_DATA_HALF) {
+        convDataType = CUDNN_DATA_FLOAT; //Math are done in FP32 when tensor are in FP16
+    }
+    CHECK_CUDNN(cudnnSetConvolutionNdDescriptor(convDesc,
+            convDims,
+            padA,
+            filterStrideA,
+            upscaleA,
+            CUDNN_CROSS_CORRELATION,
+            convDataType));
+    // find dimension of convolution output
+    CHECK_CUDNN(cudnnGetConvolutionNdForwardOutputDim(convDesc,
+            srcTensorDesc,
+            filterDesc,
+            tensorDims,
+            tensorOuputDimA));
+    *n = tensorOuputDimA[0]; *c = tensorOuputDimA[1];
+    *h = tensorOuputDimA[2]; *w = tensorOuputDimA[3];
+}
+
+void convoluteForward(
+    cnn::real *cnn_filter_data_d,
+    cnn::real *cnn_bias_d,
+    int n, int c, int h, int w,
+    cnn::real* srcData, cnn::real** dstData,
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnTensorFormat_t tensorFormat,
+    cudnnDataType_t dataType,
+    cudnnFilterDescriptor_t filterDesc,
+    cudnnConvolutionDescriptor_t convDesc,
+    cudnnTensorDescriptor_t biasTensorDesc,
+    int convAlgorithm)
+{
+    cudnnConvolutionFwdAlgo_t algo;
+
+    setTensorDesc(dstTensorDesc, tensorFormat, dataType, n, c, h, w);
+
+    if (convAlgorithm < 0)
+    {
+        // Choose the best according to the preference
+        std::cout << "Testing cudnnGetConvolutionForwardAlgorithm ...\n";
+        CHECK_CUDNN(cudnnGetConvolutionForwardAlgorithm(cudnn_handle,
+            srcTensorDesc,
+            filterDesc,
+            convDesc,
+            dstTensorDesc,
+            CUDNN_CONVOLUTION_FWD_PREFER_FASTEST,
+            0,
+            &algo
+            ));
+        std::cout << "Fastest algorithm is Algo " << algo << "\n";
+        convAlgorithm = algo;
+        // New way of finding the fastest config
+        // Setup for findFastest call
+        std::cout << "Testing cudnnFindConvolutionForwardAlgorithm ...\n";
+        int requestedAlgoCount = 5;
+        int returnedAlgoCount[1];
+        cudnnConvolutionFwdAlgoPerf_t *results = (cudnnConvolutionFwdAlgoPerf_t*)malloc(sizeof(cudnnConvolutionFwdAlgoPerf_t)*requestedAlgoCount);
+        CHECK_CUDNN(cudnnFindConvolutionForwardAlgorithm(cudnn_handle,
+            srcTensorDesc,
+            filterDesc,
+            convDesc,
+            dstTensorDesc,
+            requestedAlgoCount,
+            returnedAlgoCount,
+            results
+            ));
+        for (int algoIndex = 0; algoIndex < *returnedAlgoCount; ++algoIndex){
+            printf("^^^^ %s for Algo %d: %f time requiring %llu memory\n", cudnnGetErrorString(results[algoIndex].status), results[algoIndex].algo, results[algoIndex].time, (unsigned long long)results[algoIndex].memory);
+        }
+        free(results);
+    }
+    else
+    {
+        algo = (cudnnConvolutionFwdAlgo_t)convAlgorithm;
+        if (algo == CUDNN_CONVOLUTION_FWD_ALGO_FFT)
+        {
+            //std::cout << "Using FFT for convolution\n";
+        }
+    }
+
+    size_t sizeInBytes = 0;
+    void* workSpace = NULL;
+    CHECK_CUDNN(cudnnGetConvolutionForwardWorkspaceSize(cudnn_handle,
+        srcTensorDesc,
+        filterDesc,
+        convDesc,
+        dstTensorDesc,
+        algo,
+        &sizeInBytes));
+    if (sizeInBytes != 0)
+    {
+        CUDA_CHECK(cudaMalloc(&workSpace, sizeInBytes));
+    }
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(0);
+    CHECK_CUDNN(cudnnConvolutionForward(cudnn_handle,
+        &alpha,
+        srcTensorDesc,
+        srcData,
+        filterDesc,
+        cnn_filter_data_d,
+        convDesc,
+        algo,
+        workSpace,
+        sizeInBytes,
+        &beta,
+        dstTensorDesc,
+        *dstData));
+    addBias(dstTensorDesc, cnn_bias_d, c, *dstData, biasTensorDesc, tensorFormat, dataType);
+    if (sizeInBytes != 0)
+    {
+        CUDA_CHECK(cudaFree(workSpace));
+    }
+}
+
+void convoluteBackwardToFilter(
+    cnn::real* srcData, /// observation
+    cnn::real* dyDst,   /// gradient to be backpropagated
+    cnn::real * dFilter,  /// gradient to be propagated to
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnTensorFormat_t tensorFormat,
+    cudnnDataType_t dataType,
+    cudnnConvolutionDescriptor_t convDesc,
+    cudnnFilterDescriptor_t filterDesc,
+    int convAlgorithm)
+{
+    cudnnConvolutionBwdFilterAlgo_t algo;
+
+    if (convAlgorithm < 0)
+    {
+        // Choose the best according to the preference
+        std::cout << "Testing cudnnGetConvolutionBackwardFilterAlgorithm ...\n";
+        CHECK_CUDNN(cudnnGetConvolutionBackwardFilterAlgorithm(cudnn_handle,
+            srcTensorDesc,
+            dstTensorDesc,
+            convDesc,
+            filterDesc,
+            CUDNN_CONVOLUTION_BWD_FILTER_PREFER_FASTEST,
+            0,
+            &algo
+            ));
+        std::cout << "Fastest algorithm is Algo " << algo << "\n";
+        convAlgorithm = algo;
+        // New way of finding the fastest config
+        // Setup for findFastest call
+        std::cout << "Testing cudnnGetConvolutionBackwardFilterAlgorithm ...\n";
+        int requestedAlgoCount = 5;
+        int returnedAlgoCount[1];
+        cudnnConvolutionBwdFilterAlgoPerf_t *results = (cudnnConvolutionBwdFilterAlgoPerf_t*)malloc(sizeof(cudnnConvolutionBwdFilterAlgoPerf_t)*requestedAlgoCount);
+        CHECK_CUDNN(cudnnFindConvolutionBackwardFilterAlgorithm(cudnn_handle,
+            srcTensorDesc,
+            dstTensorDesc,
+            convDesc,
+            filterDesc,
+            requestedAlgoCount,
+            returnedAlgoCount,
+            results
+            ));
+        for (int algoIndex = 0; algoIndex < *returnedAlgoCount; ++algoIndex){
+            printf("^^^^ %s for Algo %d: %f time requiring %llu memory\n", cudnnGetErrorString(results[algoIndex].status), results[algoIndex].algo, results[algoIndex].time, (unsigned long long)results[algoIndex].memory);
+        }
+        free(results);
+    }
+    else
+    {
+        algo = (cudnnConvolutionBwdFilterAlgo_t)convAlgorithm;
+        if (algo == CUDNN_CONVOLUTION_BWD_FILTER_ALGO_FFT)
+        {
+            //std::cout << "Using FFT for convolution\n";
+        }
+    }
+
+    size_t sizeInBytes = 0;
+    void* workSpace = NULL;
+    CHECK_CUDNN(cudnnGetConvolutionBackwardFilterWorkspaceSize(cudnn_handle,
+        srcTensorDesc,
+        dstTensorDesc,
+        convDesc,
+        filterDesc,
+        algo,
+        &sizeInBytes));
+    if (sizeInBytes != 0)
+    {
+        CUDA_CHECK(cudaMalloc(&workSpace, sizeInBytes));
+    }
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(1);
+    CHECK_CUDNN(cudnnConvolutionBackwardFilter(cudnn_handle,
+        &alpha,
+        srcTensorDesc,
+        srcData,
+        dstTensorDesc,
+        dyDst,
+        convDesc,
+        algo,
+        workSpace,
+        sizeInBytes,
+        &beta,
+        filterDesc,
+        dFilter));
+    if (sizeInBytes != 0)
+    {
+        CUDA_CHECK(cudaFree(workSpace));
+    }
+}
+
+void convoluteBackwardToData(
+    cnn::real * filterData, /// filter 
+    cnn::real* dyDst,   /// gradient to be backpropagated
+    cnn::real * dxData,  /// gradient to be propagated to
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnTensorFormat_t tensorFormat,
+    cudnnDataType_t dataType,
+    cudnnConvolutionDescriptor_t convDesc,
+    cudnnFilterDescriptor_t filterDesc,
+    int convAlgorithm)
+{
+    cudnnConvolutionBwdDataAlgo_t algo;
+
+    if (convAlgorithm < 0)
+    {
+        // Choose the best according to the preference
+        std::cout << "Testing convoluteBackwardToData ...\n";
+        CHECK_CUDNN(cudnnGetConvolutionBackwardDataAlgorithm(cudnn_handle,
+            filterDesc,
+            dstTensorDesc,
+            convDesc,
+            srcTensorDesc,
+            CUDNN_CONVOLUTION_BWD_DATA_PREFER_FASTEST,
+            0,
+            &algo
+            ));
+        std::cout << "Fastest algorithm is Algo " << algo << "\n";
+        convAlgorithm = algo;
+        // New way of finding the fastest config
+        // Setup for findFastest call
+        std::cout << "Testing convoluteBackwardToData ...\n";
+        int requestedAlgoCount = 5;
+        int returnedAlgoCount[1];
+        cudnnConvolutionBwdDataAlgoPerf_t *results = (cudnnConvolutionBwdDataAlgoPerf_t*)malloc(sizeof(cudnnConvolutionBwdDataAlgoPerf_t)*requestedAlgoCount);
+        CHECK_CUDNN(cudnnFindConvolutionBackwardDataAlgorithm(cudnn_handle,
+            filterDesc,
+            dstTensorDesc,
+            convDesc,
+            srcTensorDesc,
+            requestedAlgoCount,
+            returnedAlgoCount,
+            results
+            ));
+        for (int algoIndex = 0; algoIndex < *returnedAlgoCount; ++algoIndex){
+            printf("^^^^ %s for Algo %d: %f time requiring %llu memory\n", cudnnGetErrorString(results[algoIndex].status), results[algoIndex].algo, results[algoIndex].time, (unsigned long long)results[algoIndex].memory);
+        }
+        free(results);
+    }
+    else
+    {
+        algo = (cudnnConvolutionBwdDataAlgo_t)convAlgorithm;
+        if (algo == CUDNN_CONVOLUTION_BWD_DATA_ALGO_FFT)
+        {
+            //std::cout << "Using FFT for convolution\n";
+        }
+    }
+
+    size_t sizeInBytes = 0;
+    void* workSpace = NULL;
+    CHECK_CUDNN(cudnnGetConvolutionBackwardDataWorkspaceSize(cudnn_handle,
+        filterDesc,
+        dstTensorDesc,
+        convDesc,
+        srcTensorDesc,
+        algo,
+        &sizeInBytes));
+    if (sizeInBytes != 0)
+    {
+        CUDA_CHECK(cudaMalloc(&workSpace, sizeInBytes));
+    }
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(1);
+    CHECK_CUDNN(cudnnConvolutionBackwardData(cudnn_handle,
+        &alpha,
+        filterDesc,
+        filterData,
+        dstTensorDesc,
+        dyDst,
+        convDesc,
+        algo,
+        workSpace,
+        sizeInBytes,
+        &beta,
+        srcTensorDesc,
+        dxData));
+    if (sizeInBytes != 0)
+    {
+        CUDA_CHECK(cudaFree(workSpace));
+    }
+}
+
+void poolingForwardOutputSize(cudnnPoolingDescriptor_t poolingDesc,
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnTensorFormat_t tensorFormat,
+    cudnnDataType_t dataType,
+    int *n, int *c, int *h, int *w)
+{
+    const int poolDims = 2;
+    int windowDimA[poolDims] = { 2, 2 };
+    int paddingA[poolDims] = { 0, 0 };
+    int strideA[poolDims] = { 2, 2 };
+    CHECK_CUDNN(cudnnSetPoolingNdDescriptor(poolingDesc,
+        CUDNN_POOLING_MAX,
+        CUDNN_PROPAGATE_NAN,
+        poolDims,
+        windowDimA,
+        paddingA,
+        strideA));
+
+    setTensorDesc(srcTensorDesc, tensorFormat, dataType, *n, *c, *h, *w);
+
+    const int tensorDims = 4;
+    int tensorOuputDimA[tensorDims] = { *n, *c, *h, *w };
+    CHECK_CUDNN(cudnnGetPoolingNdForwardOutputDim(poolingDesc,
+        srcTensorDesc,
+        tensorDims,
+        tensorOuputDimA));
+    *n = tensorOuputDimA[0]; *c = tensorOuputDimA[1];
+    *h = tensorOuputDimA[2]; *w = tensorOuputDimA[3];
+
+    setTensorDesc(dstTensorDesc, tensorFormat, dataType, *n, *c, *h, *w);
+
+    CHECK_CUDNN(cudnnGetPooling2dForwardOutputDim(poolingDesc, srcTensorDesc, n, c, h, w));
+}
+
+void poolForward(
+    cnn::real* srcData, cnn::real* dstData, 
+    int* n, int* c, int* h, int* w,
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnPoolingDescriptor_t     poolingDesc,
+    cudnnTensorFormat_t tensorFormat, 
+    cudnnHandle_t cudnnHandle,
+    cudnnDataType_t dataType)
+{
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(0);
+    CHECK_CUDNN(cudnnPoolingForward(cudnnHandle,
+        poolingDesc,
+        &alpha,
+        srcTensorDesc,
+        srcData,
+        &beta,
+        dstTensorDesc,
+        dstData));
+}
+
+void poolBackward(cnn::real* xObs, /// input to the pooling
+    cnn::real * yDst, /// response from the pooling
+    cnn::real* dyDst, /// gradients to be propagated from
+    cnn::real* dxSrc, /// gradients to be propagated to
+    cudnnTensorDescriptor_t srcTensorDesc,
+    cudnnTensorDescriptor_t dstTensorDesc,
+    cudnnPoolingDescriptor_t     poolingDesc,
+    cudnnHandle_t cudnnHandle)
+{
+    scaling_type alpha = scaling_type(1);
+    scaling_type beta = scaling_type(1);
+    CHECK_CUDNN(cudnnPoolingBackward(cudnnHandle,
+        poolingDesc,
+        &alpha,
+        dstTensorDesc,
+        yDst,
+        dstTensorDesc,
+        dyDst,
+        srcTensorDesc,
+        xObs,
+        &beta,
+        srcTensorDesc,
+        dxSrc));
 }
 
 } // namespace gpu
