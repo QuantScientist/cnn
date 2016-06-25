@@ -101,6 +101,8 @@ Expression kmax_pooling(const Expression& x, unsigned k);
 Expression fold_rows(const Expression& x, unsigned nrows=2);
 Expression sum_cols(const Expression& x);
 Expression kmh_ngram(const Expression& x, unsigned n);
+Expression conv2d(const Expression& x, const Expression& f, const Expression & b);
+Expression max_pooling(const Expression& x);
 
 // Sum the results of multiple batches
 Expression sum_batches(const Expression& x);

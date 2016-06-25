@@ -83,6 +83,8 @@ Expression conv1d_narrow(const Expression& x, const Expression& f) { return Expr
 Expression conv1d_wide(const Expression& x, const Expression& f) { return Expression(x.pg, x.pg->add_function<Conv1DWide>({x.i, f.i})); }
 Expression kmax_pooling(const Expression& x, unsigned k) { return Expression(x.pg, x.pg->add_function<KMaxPooling>({x.i}, k)); }
 Expression fold_rows(const Expression& x, unsigned nrows) { return Expression(x.pg, x.pg->add_function<FoldRows>({x.i}, nrows)); }
+Expression conv2d(const Expression& x, const Expression& f, const Expression& b) { return Expression(x.pg, x.pg->add_function<Conv2D>({ x.i, f.i, b.i })); }
+Expression max_pooling(const Expression& x) { return Expression(x.pg, x.pg->add_function<Pooling>({ x.i})); }
 
 Expression pick(const Expression& x, unsigned v) { return Expression(x.pg, x.pg->add_function<PickElement>({x.i}, v)); }
 Expression pick(const Expression& x, unsigned* pv) { return Expression(x.pg, x.pg->add_function<PickElement>({x.i}, pv)); }
