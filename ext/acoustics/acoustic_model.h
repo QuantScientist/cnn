@@ -17,7 +17,7 @@ namespace cnn {
 
     class Model;
 
-    // interface for constructing an a dialogue 
+    // interface for constructing an acoustic model
     template<class Builder, class Decoder>
     class AcousticModel{
     protected:
@@ -367,6 +367,295 @@ namespace cnn {
             }
 
             return target;
+        }
+
+    };
+
+    // interface for constructing an acoustic model
+    template<class Builder, class Decoder>
+    class CNNAcousticModel{
+    protected:
+        LookupParameters* p_cs;
+        Parameters* p_bias;
+        Parameters* p_R;  // for affine transformation after decoder
+        Expression i_bias, i_R, i_bias_mb;
+
+        vector<unsigned int> layers;
+        Decoder decoder;  // for decoder at each turn
+        Builder encoder_fwd, encoder_bwd; /// for encoder at each turn
+
+        /// for alignment to source
+        Parameters* p_U;
+        Expression i_U;
+
+        Model model;
+
+        unsigned vocab_size_tgt;
+        vector<unsigned int> hidden_dim;
+        int rep_hidden;
+        int decoder_use_additional_input;
+
+        // state variables used in the above two methods
+        vector<Expression> v_src;
+        Expression src;
+        Expression i_sm0;  // the first input to decoder, even before observed
+        std::vector<unsigned> src_len;
+        Expression src_fwd;
+        unsigned slen;
+
+        // for initial hidden state
+        vector<Parameters*> p_h0;
+        vector<Expression> i_h0;
+
+        Parameters* p_trns_src2hidden;
+        Expression trns_src2hidden;
+
+        Parameters * p_emb2dec; /// embedding to encoding
+        Parameters * p_emb2dec_b; /// bias 
+        Expression   i_emb2dec;
+        Expression   i_emb2dec_b;           /// the bias that is to be applied to each 
+        size_t turnid;
+
+        unsigned int nutt; // for multiple training utterance per inibatch
+
+        vector<cnn::real> zero;
+        Expression i_zero_emb; /// Expresison for embedding of zeros in the embedding space
+    
+        Parameters* p_filter; /// convolution filter
+        Expression i_filter; 
+
+        Parameters* p_conv_bias; /// convolution filter bias
+        Expression i_conv_bias;
+
+        Parameters * p_summary;  /// convert pooling output to output layer
+        Expression i_summary;
+
+        Parameters * p_merge;
+        Expression i_merge;
+    public:
+        /// for criterion
+        vector<Expression> v_errs;
+        size_t src_feature_number;
+        size_t tgt_words;
+
+        vector<Expression> v_obs;
+
+    public:
+        cnn::real pr_threshold; /// probability threshold, above which an output is considered occured
+
+    public:
+        unsigned m_conv_block_x, m_conv_block_y;
+
+    public:
+        CNNAcousticModel() {};
+        CNNAcousticModel(cnn::Model& model, unsigned int vocab_size_tgt,
+            const vector<unsigned int>& layers,
+            const vector<unsigned int>& hidden_dims,
+            const map<string, cnn::real>& additional_params,
+            int hidden_replicates,
+            int decoder_use_additional_input,
+            cnn::real iscale = 1.0) :
+            layers(layers),
+            decoder(layers[DECODER_LAYER], vector<unsigned>{hidden_dims[DECODER_LAYER] + decoder_use_additional_input * hidden_dims[ENCODER_LAYER], hidden_dims[DECODER_LAYER], hidden_dims[DECODER_LAYER] }, &model, iscale),
+            encoder_fwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
+            encoder_bwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
+            decoder_use_additional_input(decoder_use_additional_input),
+            vocab_size_tgt(vocab_size_tgt),
+            rep_hidden(hidden_replicates)
+        {
+            hidden_dim = hidden_dims;
+
+            p_cs = model.add_lookup_parameters(vocab_size_tgt, { hidden_dim[EMBEDDING_LAYER] }, iscale);
+            p_R = model.add_parameters({ vocab_size_tgt, hidden_dim[DECODER_LAYER] }, iscale);
+            p_bias = model.add_parameters({ vocab_size_tgt }, iscale);
+
+            p_U = model.add_parameters({ hidden_dim[ALIGN_LAYER], 2 * hidden_dim[ENCODER_LAYER] }, iscale);
+
+            p_trns_src2hidden = model.add_parameters({ hidden_dim[ENCODER_LAYER], hidden_dim[EMBEDDING_LAYER] }, iscale, "trans for obs to encoder");
+
+            for (size_t i = 0; i < layers[ENCODER_LAYER] * rep_hidden; i++)
+            {
+                p_h0.push_back(model.add_parameters({ hidden_dim[ENCODER_LAYER] }, iscale));
+                p_h0.back()->reset_to_zero();
+            }
+            zero.resize(hidden_dim[EMBEDDING_LAYER], 0);  /// for the no obs observation
+
+            m_conv_block_x = 8;
+            m_conv_block_y = 8;
+
+            /// embedding to encoding
+            unsigned lr = (hidden_dim[EMBEDDING_LAYER] - m_conv_block_y) / 2;
+            p_emb2dec = model.add_parameters({ vocab_size_tgt, hidden_dim[DECODER_LAYER] });
+            p_emb2dec_b = model.add_parameters({ hidden_dim[DECODER_LAYER] });
+
+            p_filter = model.add_parameters({ m_conv_block_x, m_conv_block_y }, iscale);
+            p_conv_bias = model.add_parameters({ 1 }, 0.0);
+
+            p_summary = model.add_parameters({ hidden_dim[DECODER_LAYER] }, iscale);
+            i_h0.clear();
+
+            p_merge = model.add_parameters({ lr }, iscale);
+
+            pr_threshold = 0.0;
+        };
+
+        ~CNNAcousticModel(){
+        };
+
+        /// for context
+        void reset()
+        {
+            turnid = 0;
+
+            i_h0.clear();
+
+            v_errs.clear();
+            src_feature_number = 0;
+            tgt_words = 0;
+
+            v_obs.clear();
+        }
+
+    public:
+        /// run in batch with multiple sentences
+        /// source [utt][data stream] is utterance first and then its content
+        /// the context RNN uses the last state of the encoder RNN as its input
+        virtual void start_new_instance(
+            const std::vector<std::vector<cnn::real>> &obs,
+            ComputationGraph &cg)
+        {
+            nutt = obs.size();
+
+            if (i_h0.size() == 0)
+            {
+                i_h0.clear();
+                for (auto p : p_h0)
+                {
+                    i_h0.push_back(concatenate_cols(vector<Expression>(nutt, parameter(cg, p))));
+                }
+
+                i_bias = parameter(cg, p_bias);
+                i_R = parameter(cg, p_R);
+                i_bias_mb = concatenate_cols(vector<Expression>(nutt, i_bias));
+
+                trns_src2hidden = parameter(cg, p_trns_src2hidden);
+                i_zero_emb = input(cg, { (hidden_dim[EMBEDDING_LAYER]) }, &zero);
+
+                i_emb2dec = parameter(cg, p_emb2dec);
+                i_emb2dec_b = concatenate_cols(vector<Expression>(nutt, parameter(cg, p_emb2dec_b)));
+
+                i_filter = parameter(cg, p_filter);
+                i_conv_bias = parameter(cg, p_conv_bias);
+
+                i_summary = parameter(cg, p_summary);
+                i_merge = parameter(cg, p_merge);
+            }
+
+            size_t n_turns = 0;
+            std::vector<Expression> source_embeddings;
+
+            encoder_fwd.new_graph(cg);
+            encoder_fwd.set_data_in_parallel(nutt);
+            encoder_fwd.start_new_sequence();
+            encoder_bwd.new_graph(cg);
+            encoder_bwd.set_data_in_parallel(nutt);
+            encoder_bwd.start_new_sequence();
+            decoder.new_graph(cg);
+            decoder.set_data_in_parallel(nutt);
+            decoder.start_new_sequence();
+
+            /// the source sentence has to be approximately the same length
+            src_len = each_sentence_length(obs, hidden_dim[EMBEDDING_LAYER]);
+            for (auto& p : src_len)
+                src_feature_number += p * hidden_dim[EMBEDDING_LAYER];
+
+            int ik_len = 0;
+            for (auto&p : obs)
+            {
+                Expression i_obs = transpose(input(cg, { hidden_dim[EMBEDDING_LAYER], src_len[ik_len] }, p));
+                Expression i_conv = conv2d(i_obs, i_filter, i_conv_bias);
+                Expression i_pooled = max_pooling(i_conv);
+                int lc = ceil((src_len[ik_len] - m_conv_block_x) / 2.0);
+                vector<Expression> v_combine(lc, i_summary);
+                v_obs.push_back(concatenate_cols(v_combine) * i_pooled); /// a representation of this source
+                ik_len++;
+            }
+        };
+
+        Expression decoder_step(ComputationGraph& cg)
+        {
+            vector<Expression> v_x_t;
+
+            for (auto& p : v_obs)
+            {
+                Expression i_obs = p * i_merge;
+                v_x_t.push_back(i_obs);
+            }
+            Expression i_output = i_emb2dec * (concatenate_cols(v_x_t) + i_emb2dec_b);
+            return i_output;
+        }
+
+        vector<Expression> build_graph(
+            const std::vector<std::vector<cnn::real>> &obs,
+            const std::vector<std::vector<int>>& lbls,
+            ComputationGraph &cg)
+        {
+            unsigned int nutt = obs.size();
+            start_new_instance(obs, cg);
+
+            vector<vector<Expression>> this_errs(nutt);
+            vector<Expression> errs;
+
+            Expression i_y_t = decoder_step(cg);
+            Expression i_ydist = tanh(i_y_t);  /// values between -1 and 1
+            Expression r_r_t = reshape(i_ydist, { vocab_size_tgt * nutt });
+
+            for (size_t i = 0; i < nutt; i++)
+            {
+                int offset = i * vocab_size_tgt;
+
+                vector<cnn::real> v_tgt(vocab_size_tgt, -1.0); /// default is -1.0
+                for (auto& lbl : lbls[i])
+                {
+                    v_tgt[lbl] = 1.0; /// target
+                    tgt_words++;
+                }
+
+                Expression i_target = input(cg, { vocab_size_tgt },  v_tgt);
+                Expression i_result = pickrange(r_r_t, offset, offset + vocab_size_tgt);
+                this_errs[i].push_back(squared_distance(i_target, i_result)); 
+            }
+
+            for (auto &p : this_errs)
+                errs.push_back(sum(p));
+
+            turnid++;
+            return errs;
+        };
+
+        std::vector<int> decode(const std::vector<cnn::real> &source, ComputationGraph& cg, cnn::Dict  &tdict)
+        {
+            nutt = 1;
+
+            start_new_instance(vector<vector<cnn::real>>(nutt, source), cg);
+
+            Expression i_y_t = decoder_step(cg);
+            Expression i_ydist = softmax(i_y_t);
+            Expression r_r_t = reshape(i_ydist, { vocab_size_tgt * nutt });
+
+            auto dist = get_value(r_r_t, cg);
+            vector<vector<int>> results(nutt);
+            for (int u = 0; u < nutt; u++)
+            {
+                int i_shift = u * vocab_size_tgt;
+                unsigned w = 0;
+                for (unsigned x = 0; x < vocab_size_tgt; ++x) {
+                    if (dist[x + i_shift] > pr_threshold) {
+                        results[u].push_back(x);
+                    }
+                }
+            }
+            return results[0];
         }
 
     };
