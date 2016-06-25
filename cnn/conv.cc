@@ -1,5 +1,4 @@
 #include "cnn/conv.h"
-
 #include <sstream>
 #include <limits>
 #include <cmath>
@@ -378,5 +377,105 @@ void KMaxPooling::backward_impl(const vector<const Tensor*>& xs,
 #endif
 }
 
+string Conv2D::as_string(const vector<string>& arg_names) const {
+    ostringstream os;
+    os << "conv2d(" << arg_names[0] << ", f=" << arg_names[1] << ')';
+    return os.str();
+}
 
+Dim Conv2D::dim_forward(const vector<Dim>& xs) const {
+    if (xs.size() != 3) {
+        cerr << "Conv2D requires three inputs: xs[0] for observation, xs[1] for filter and xs[2] for bias" << xs << endl;
+        throw std::invalid_argument("Conv2D requires 3 inputs");
+    }
+    *n = 1;
+    *c = 1;
+    *h = xs[0].rows();
+    *w = xs[0].cols();
+    gpu::convoluteForwardOutputSize(1, 1, xs[1].rows(), xs[1].cols(), n, c, h, w, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, filterDesc, convDesc);
+
+    return Dim({ (unsigned)*h, (unsigned)*w }); 
+}
+
+void Conv2D::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
+    fx.m_device_id = device_id;
+#ifdef HAVE_CUDA
+    gpu::convoluteForward(xs[1]->v, xs[2]->v, *n, *c, *h, *w, xs[0]->v, &fx.v, srcTensorDesc, dstTensorDesc, tensorFormat, dataType,
+        filterDesc, convDesc, biasTensorDesc, convAlgorithm);
+#else
+    NOT_IMPLEMENTED; 
+#endif
+}
+
+void Conv2D::backward_impl(const vector<const Tensor*>& xs,
+    const Tensor& fx,
+    const Tensor& dEdf,
+    unsigned i,
+    Tensor& dEdxi) const {
+#ifdef HAVE_CUDA
+    switch (i){
+    case 0:  /// to data
+        gpu::convoluteBackwardToData(xs[1]->v, dEdf.v, dEdxi.v, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, convDesc, filterDesc, convAlgorithm);
+        break;
+    case 1:  /// to filter
+        gpu::convoluteBackwardToFilter(xs[0]->v, dEdf.v, dEdxi.v, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, convDesc, filterDesc, convAlgorithm);
+        break;
+    case 2:  /// to bias
+        gpu::convBackwardBias(dstTensorDesc, dEdf.v, biasTensorDesc, dEdxi.v); 
+        break;
+    default:
+        throw("conv2d only has three inputs");
+    }
+
+#else
+    NOT_IMPLEMENTED; 
+#endif
+}
+
+string Pooling::as_string(const vector<string>& arg_names) const {
+    ostringstream os;
+    os << "pooling(" << arg_names[0] << ')';
+    return os.str();
+}
+
+Dim Pooling::dim_forward(const vector<Dim>& xs) const {
+    if (xs.size() != 1) {
+        cerr << "Pooling requires one inputs" << xs << endl;
+        throw std::invalid_argument("Pooling requires 1 input");
+    }
+    *n = 1;
+    *c = 1;
+    *h = xs[0].rows();
+    *w = xs[0].cols();
+    gpu::poolingForwardOutputSize(poolingDesc, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, n, c, h, w);
+    return Dim({ (unsigned)*h, (unsigned)*w });
+}
+
+void Pooling::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
+    fx.m_device_id = device_id;
+#ifdef HAVE_CUDA
+    gpu::poolForward(xs[0]->v, fx.v, n, c, h, w, srcTensorDesc, dstTensorDesc, poolingDesc, tensorFormat, cudnn_handle, dataType);
+#else
+    NOT_IMPLEMENTED;
+#endif
+}
+
+void Pooling::backward_impl(const vector<const Tensor*>& xs,
+    const Tensor& fx,
+    const Tensor& dEdf,
+    unsigned i,
+    Tensor& dEdxi) const {
+#ifdef HAVE_CUDA
+    switch (i){
+    case 0:  /// to data
+        gpu::poolBackward(xs[0]->v, fx.v, dEdf.v, dEdxi.v, srcTensorDesc, dstTensorDesc, poolingDesc, cudnn_handle);
+        break;
+    default:
+        throw("pooling only has one inputs");
+    }
+
+#else
+    NOT_IMPLEMENTED;
+#endif
+}
 } // namespace cnn
