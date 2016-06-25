@@ -2335,9 +2335,7 @@ void TrainProcess<AM_t>::segmental_forward_backward(Model &model, AM_t &am,
 
         if (verbose) cout << "after graph build" << endl;
 
-        if (doGradientCheck
-            && turn_id > 3 // do gradient check after burn-in
-            )
+        if (doGradientCheck)
             CheckGrad(model, cg);
 
         Tensor tv = cg.get_value(am.s2txent.i);
