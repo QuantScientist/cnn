@@ -1463,7 +1463,7 @@ void PickElement::backward_impl(const vector<const Tensor*>& xs,
 }
 
 // x_1 is a vector
-// y = (x_1)[start:end]
+// y = (x_1)[start:end)
 // slice of vector from index start (inclusive) to index end (exclusive)
 void PickRange::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
     assert(xs.size() == 1);
