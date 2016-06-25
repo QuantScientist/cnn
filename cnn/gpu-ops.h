@@ -87,6 +87,91 @@ namespace gpu {
     /// clip each element of x0 if its absolute value is larger than the threshold
     void simple_clipping(int n, const cnn::real* x0, cnn::real* y, cnn::real threshold);
 
+    void addBias(const cudnnTensorDescriptor_t dstTensorDesc,
+        const cnn::real* bias_d,
+        int c, cnn::real *data,
+        cudnnTensorDescriptor_t biasTensorDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnDataType_t dataType);
+    void convBackwardBias(const cudnnTensorDescriptor_t dstTensorDesc,
+        const cnn::real* d_dst,
+        cudnnTensorDescriptor_t biasTensorDesc,
+        cnn::real *d_bias);
+
+    void convoluteForwardOutputSize(const int conv_inputs,
+        const int conv_outputs, const int conv_kernel_dim_x,
+        const int conv_kernel_dim_y,
+        int* n, int* c, int* h, int* w,
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnDataType_t dataType,
+        cudnnFilterDescriptor_t filterDesc,
+        cudnnConvolutionDescriptor_t convDesc);
+
+    void convoluteForward(
+        cnn::real *cnn_filter_data_d,
+        cnn::real *cnn_bias_d,
+        int n, int c, int h, int w,
+        cnn::real* srcData, cnn::real** dstData,
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnDataType_t dataType,
+        cudnnFilterDescriptor_t filterDesc,
+        cudnnConvolutionDescriptor_t convDesc,
+        cudnnTensorDescriptor_t biasTensorDesc,
+        int convAlgorithm);
+
+    void convoluteBackwardToFilter(
+        cnn::real* srcData, /// observation
+        cnn::real* dyDst,   /// gradient to be backpropagated
+        cnn::real * dFilter,  /// gradient to be propagated to
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnDataType_t dataType,
+        cudnnConvolutionDescriptor_t convDesc,
+        cudnnFilterDescriptor_t filterDesc,
+        int convAlgorithm);
+
+    void convoluteBackwardToData(
+        cnn::real * filterData, /// filter 
+        cnn::real* dyDst,   /// gradient to be backpropagated
+        cnn::real * dxData,  /// gradient to be propagated to
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnDataType_t dataType,
+        cudnnConvolutionDescriptor_t convDesc,
+        cudnnFilterDescriptor_t filterDesc,
+        int convAlgorithm);
+
+    void poolingForwardOutputSize(cudnnPoolingDescriptor_t poolingDesc,
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnDataType_t dataType,
+        int *n, int *c, int *h, int *w);
+
+    void poolForward(
+        cnn::real* srcData, cnn::real* dstData,
+        int* n, int* c, int* h, int* w,
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnPoolingDescriptor_t     poolingDesc,
+        cudnnTensorFormat_t tensorFormat,
+        cudnnHandle_t cudnnHandle,
+        cudnnDataType_t dataType);
+
+    void poolBackward(cnn::real* xObs, /// input to the pooling
+        cnn::real * yDst, /// response from the pooling
+        cnn::real* dyDst, /// gradients to be propagated from
+        cnn::real* dxSrc, /// gradients to be propagated to
+        cudnnTensorDescriptor_t srcTensorDesc,
+        cudnnTensorDescriptor_t dstTensorDesc,
+        cudnnPoolingDescriptor_t     poolingDesc,
+        cudnnHandle_t cudnnHandle);
 
 } // namespace gpu
 } // namespace cnn
