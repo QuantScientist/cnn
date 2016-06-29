@@ -6,6 +6,7 @@
 #include "cnn/macros.h"
 #include "cnn/simd-functors.h"
 #include "cnn/functors.h"
+#include "boost/lexical_cast.hpp"
 #if HAVE_CUDA
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -2080,6 +2081,444 @@ void Zeroes::backward_impl(const vector<const Tensor*>& xs,
                            unsigned i,
                            Tensor& dEdxi) const {
   throw std::runtime_error("Called backward() on an arity 0 node");
+}
+
+string CUDNNRnn::as_string(const vector<string>& arg_names) const {
+    ostringstream s;
+    s << "CUDNNRnn(" << dim << ')';
+    return s.str();
+}
+
+void CUDNNRnn::setupParameter()
+{
+    CHECK_CUDNN(cudnnCreateFilterDescriptor(&wDesc));
+    CHECK_CUDNN(cudnnCreateFilterDescriptor(&dwDesc));
+
+    CHECK_CUDNN(cudnnGetRNNParamsSize(cudnn_handle, rnnDesc, xDesc, &weightsSize));
+
+    int dimW[3];
+    dimW[0] = weightsSize / sizeof(cnn::real);
+    dimW[1] = 1;
+    dimW[2] = 1;
+
+    CHECK_CUDNN(cudnnSetFilterNdDescriptor(wDesc, dataType, tensorFormat, 3, dimW));
+    CHECK_CUDNN(cudnnSetFilterNdDescriptor(dwDesc, dataType, tensorFormat, 3, dimW));
+}
+
+void CUDNNRnn::setupWorkSpace()
+{
+    // Need for every pass
+    CHECK_CUDNN(cudnnGetRNNWorkspaceSize(cudnn_handle, rnnDesc, xDesc, &workSize));
+    // Only needed in training, can't be touched between passes.
+    CHECK_CUDNN(cudnnGetRNNTrainingReserveSize(cudnn_handle, rnnDesc, xDesc, &reserveSize));
+
+    CUDA_CHECK(cudaMalloc((void**)&workspace, workSize));
+    CUDA_CHECK(cudaMalloc((void**)&reserveSpace, reserveSize));
+}
+
+void CUDNNRnn::createHandles() 
+{
+    xDesc = (cudnnTensorDescriptor_t*)malloc(seqLength * sizeof(cudnnTensorDescriptor_t));
+    yDesc = (cudnnTensorDescriptor_t*)malloc(seqLength * sizeof(cudnnTensorDescriptor_t));
+    dxDesc = (cudnnTensorDescriptor_t*)malloc(seqLength * sizeof(cudnnTensorDescriptor_t));
+    dyDesc = (cudnnTensorDescriptor_t*)malloc(seqLength * sizeof(cudnnTensorDescriptor_t));
+
+    int strideA[3];
+
+    // In this example dimA[1] is constant across the whole sequence
+    // This isn't required, all that is required is that it does not increase.
+    for (int i = 0; i < seqLength; i++) {
+        CHECK_CUDNN(cudnnCreateTensorDescriptor(&xDesc[i]));
+        CHECK_CUDNN(cudnnCreateTensorDescriptor(&yDesc[i]));
+        CHECK_CUDNN(cudnnCreateTensorDescriptor(&dxDesc[i]));
+        CHECK_CUDNN(cudnnCreateTensorDescriptor(&dyDesc[i]));
+
+        dimA[1] = miniBatch;
+        dimA[2] = 1;
+
+        strideA[0] = 1;
+
+        dimA[0] = inputSize;
+        strideA[1] = dimA[0];
+        strideA[2] = dimA[0] * dimA[1];
+        /// the fastest moving dimension is the feature dimension, which has inputSize
+        /// the second fastest is the sentence id or minibatch dimension
+        /// this corresponds to the column major?
+        CHECK_CUDNN(cudnnSetTensorNdDescriptor(xDesc[i], dataType, 3, dimA, strideA));
+        CHECK_CUDNN(cudnnSetTensorNdDescriptor(dxDesc[i], dataType, 3, dimA, strideA));
+
+        dimA[0] = bidirectional ? hiddenSize * 2 : hiddenSize;
+        strideA[1] = dimA[0];
+        strideA[2] = dimA[0] * dimA[1];
+        CHECK_CUDNN(cudnnSetTensorNdDescriptor(yDesc[i], dataType, 3, dimA, strideA));
+        CHECK_CUDNN(cudnnSetTensorNdDescriptor(dyDesc[i], dataType, 3, dimA, strideA));
+    }
+
+    dimA[0] = hiddenSize;
+    dimA[1] = miniBatch;
+    dimA[2] = numLayers;
+
+    strideA[0] = 1;
+    strideA[1] = dimA[0];
+    strideA[2] = dimA[0] * dimA[1];
+
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&hxDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&cxDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&hyDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&cyDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&dhxDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&dcxDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&dhyDesc));
+    CHECK_CUDNN(cudnnCreateTensorDescriptor(&dcyDesc));
+
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(hxDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(cxDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(hyDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(cyDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(dhxDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(dcxDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(dhyDesc, dataType, 3, dimA, strideA));
+    CHECK_CUDNN(cudnnSetTensorNdDescriptor(dcyDesc, dataType, 3, dimA, strideA));
+
+    // -------------------------
+    // Set up the dropout descriptor (needed for the RNN descriptor)
+    // -------------------------
+    unsigned long long seed = 1337ull; // Pick a seed.
+
+    CHECK_CUDNN(cudnnCreateDropoutDescriptor(&dropoutDesc));
+
+    // How much memory does dropout need for states?
+    // These states are used to generate random numbers internally
+    // and should not be freed until the RNN descriptor is no longer used
+    CHECK_CUDNN(cudnnDropoutGetStatesSize(cudnn_handle, &stateSize));
+
+    CUDA_CHECK(cudaMalloc(&states, stateSize));
+
+    CHECK_CUDNN(cudnnSetDropoutDescriptor(dropoutDesc,
+        cudnn_handle,
+        dropout,
+        states,
+        stateSize,
+        seed));
+
+    // -------------------------   
+    // Set up the RNN descriptor
+    // -------------------------
+    CHECK_CUDNN(cudnnCreateRNNDescriptor(&rnnDesc));
+
+    if (mode == 0) RNNMode = CUDNN_RNN_RELU;
+    else if (mode == 1) RNNMode = CUDNN_RNN_TANH;
+    else if (mode == 2) RNNMode = CUDNN_LSTM;
+    else if (mode == 3) RNNMode = CUDNN_GRU;
+
+    CHECK_CUDNN(cudnnSetRNNDescriptor(rnnDesc,
+        hiddenSize,
+        seqLength,
+        numLayers,
+        dropoutDesc,
+        CUDNN_LINEAR_INPUT, // We can also skip the input matrix transformation
+        bidirectional ? CUDNN_BIDIRECTIONAL : CUDNN_UNIDIRECTIONAL,
+        RNNMode,
+        dataType));
+
+    setupParameter();
+    setupWorkSpace();
+}
+
+void CUDNNRnn::speedOfRNN()
+{
+    int numMats = 0;
+
+    if (RNNMode == CUDNN_RNN_RELU || RNNMode == CUDNN_RNN_TANH) {
+        numMats = 2;
+    }
+    else if (RNNMode == CUDNN_LSTM) {
+        numMats = 8;
+    }
+    else if (RNNMode == CUDNN_GRU) {
+        numMats = 6;
+    }
+
+    // Calculate FLOPS
+    printf("Forward: %3.0f GFLOPS\n", numMats * 2ull * (bidirectional ? 2 : 1) * hiddenSize * hiddenSize * seqLength * miniBatch * numLayers / (1e6 * *timeForward));
+    printf("Backward: %3.0f GFLOPS, ", numMats * 4ull * (bidirectional ? 2 : 1) * hiddenSize * hiddenSize * seqLength * miniBatch * numLayers / (1e6 * (*timeBackward1 + *timeBackward2)));
+    printf("(%3.0f GFLOPS), ", numMats * 2ull * (bidirectional ? 2 : 1) * hiddenSize * hiddenSize * seqLength * miniBatch * numLayers / (1e6 * *timeBackward1));
+    printf("(%3.0f GFLOPS)\n", numMats * 2ull * (bidirectional ? 2 : 1) * hiddenSize * hiddenSize * seqLength * miniBatch * numLayers / (1e6 * *timeBackward2));
+
+    // Make double-sure everything is finished before we copy for result checking.
+    cudaDeviceSynchronize();
+}
+
+void CUDNNRnn::destroyHandles()
+{
+    CUDA_CHECK(cudaFree(workspace));
+    CUDA_CHECK(cudaFree(reserveSpace));
+
+    for (int i = 0; i < seqLength; i++)
+    {
+      CHECK_CUDNN(cudnnDestroyTensorDescriptor(xDesc[i]));
+      CHECK_CUDNN(cudnnDestroyTensorDescriptor(yDesc[i]));
+      CHECK_CUDNN(cudnnDestroyTensorDescriptor(dxDesc[i]));
+      CHECK_CUDNN(cudnnDestroyTensorDescriptor(dyDesc[i]));
+    }
+
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(hxDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(cxDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(hyDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(cyDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(dhxDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(dcxDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(dhyDesc));
+    CHECK_CUDNN(cudnnDestroyTensorDescriptor(dcyDesc));
+    CHECK_CUDNN(cudnnDestroyDropoutDescriptor(dropoutDesc));
+
+    free(xDesc);
+    free(yDesc);
+    free(dxDesc);
+    free(dyDesc);
+
+    CUDA_CHECK(cudaFree(states));
+    CHECK_CUDNN(cudnnDestroyRNNDescriptor(rnnDesc));
+
+    CHECK_CUDNN(cudnnDestroyFilterDescriptor(wDesc));
+    CHECK_CUDNN(cudnnDestroyFilterDescriptor(dwDesc));
+
+}
+
+Dim CUDNNRnn::dim_forward(const vector<Dim>& xs) const {
+    if (xs.size() != 4) {
+        cerr << "CUDNNRnn requires four inputs: xs[0] for observation, xs[1] for RNN parameter, xs[2] for hx and xs[3] for cx (the initial hidden state activity)" << xs << endl;
+        throw std::invalid_argument("CUDNNRnn requires 4 inputs");
+    }
+
+    if (inputSize != xs[0].rows())
+        throw("input feature dimension specified to " + boost::lexical_cast<string>(inputSize)+" but the data row dimension is " + boost::lexical_cast<string>(xs[0].rows()));
+    
+    dimA[0] = bidirectional ? hiddenSize * 2 : hiddenSize;
+
+    if (xs[1].size() != weightsSize/sizeof(cnn::real))
+    {
+        throw("RNN filter weight size is " + boost::lexical_cast<string>(xs[1].size()) + ", but it should be " + boost::lexical_cast<string>(weightsSize/sizeof(cnn::real)));
+    }
+
+    int sz_hidden = numLayers * hiddenSize * miniBatch * (bidirectional ? 2 : 1);
+    if (xs[2].size() != 0 && xs[2].size() != sz_hidden)
+        throw("RNN initial hidden state hx activity size : actual = " + boost::lexical_cast<string>(xs[2].size()) + " but should be " + boost::lexical_cast<string>(sz_hidden));
+    if (xs[3].size() != 0 && xs[3].size() != sz_hidden)
+        throw("RNN initial hidden state cx activity size : actual = " + boost::lexical_cast<string>(xs[3].size()) + " but should be " + boost::lexical_cast<string>(sz_hidden));
+
+    int rowSize = bidirectional ? hiddenSize * 2 : hiddenSize;
+    int colSize = xs[0].cols();
+    /// the last part are to output final hidden state activity
+    int hdCols = sz_hidden / rowSize * 2; /// times 2 because need to include both hy and cy
+    *hy_pos = rowSize * colSize;
+    *cy_pos = *hy_pos + hdCols * rowSize / 2 ; 
+    return Dim({ (unsigned)rowSize, (unsigned)colSize + hdCols });
+}
+
+void CUDNNRnn::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
+
+    fx.m_device_id = xs[0]->m_device_id;
+    int colSize = seqLength * miniBatch; 
+    int hyPos = *hy_pos * sizeof(cnn::real);
+    int cyPos = *cy_pos * sizeof(cnn::real);
+
+    CUDA_CHECK(cudaDeviceSynchronize());
+    *w = xs[1]->v; 
+
+    // Weights
+    int numLinearLayers = 0;
+    if (RNNMode == CUDNN_RNN_RELU || RNNMode == CUDNN_RNN_TANH) {
+        numLinearLayers = 2;
+    }
+    else if (RNNMode == CUDNN_LSTM) {
+        numLinearLayers = 8;
+    }
+    else if (RNNMode == CUDNN_GRU) {
+        numLinearLayers = 6;
+    }
+
+    size_t filterMatSize = 0;
+    for (int layer = 0; layer < numLayers; layer++) {
+        for (int linLayerID = 0; linLayerID < numLinearLayers; linLayerID++) {
+            cudnnFilterDescriptor_t linLayerMatDesc;
+            CHECK_CUDNN(cudnnCreateFilterDescriptor(&linLayerMatDesc));
+            cnn::real *linLayerMat = (cnn::real*) *w + filterMatSize;  // point to the pre-allocated space for RNN matrix
+            if (layer == 0 && linLayerID == 0)
+                filterMatSize += inputSize * hiddenSize * (bidirectional ? 2 : 1);  /// for the first layer input to hidden connection
+            else
+                filterMatSize += hiddenSize * hiddenSize * (bidirectional ? 2 : 1);
+
+            CHECK_CUDNN(cudnnGetRNNLinLayerMatrixParams(cudnn_handle,
+                rnnDesc,
+                layer,
+                xDesc,
+                wDesc,
+                w,
+                linLayerID,
+                linLayerMatDesc,
+                (void**)&linLayerMat));
+
+            cudnnDataType_t dataType;
+            cudnnTensorFormat_t format;
+            int nbDims;
+            int filterDimA[3];
+            CHECK_CUDNN(cudnnGetFilterNdDescriptor(linLayerMatDesc,
+                3,
+                &dataType,
+                &format,
+                &nbDims,
+                filterDimA));
+
+            CHECK_CUDNN(cudnnDestroyFilterDescriptor(linLayerMatDesc));
+
+            cudnnFilterDescriptor_t linLayerBiasDesc;
+            CHECK_CUDNN(cudnnCreateFilterDescriptor(&linLayerBiasDesc));
+            cnn::real *linLayerBias = (cnn::real*) *w + filterMatSize;  // point to the preallocated RNN bias
+            filterMatSize += hiddenSize * (bidirectional ? 2 : 1);
+
+            CHECK_CUDNN(cudnnGetRNNLinLayerBiasParams(cudnn_handle,
+                rnnDesc,
+                layer,
+                xDesc,
+                wDesc,
+                w,
+                linLayerID,
+                linLayerBiasDesc,
+                (void**)&linLayerBias));
+
+            CHECK_CUDNN(cudnnGetFilterNdDescriptor(linLayerBiasDesc,
+                3,
+                &dataType,
+                &format,
+                &nbDims,
+                filterDimA));
+
+            CHECK_CUDNN(cudnnDestroyFilterDescriptor(linLayerBiasDesc));
+        }
+        if (bidirectional && layer < numLayers - 1)
+        {
+            filterMatSize += 2 * hiddenSize * hiddenSize; /// from bidirectional to the size of one directional input to the next layer
+        }
+    }
+
+    int szWeight = weightsSize / sizeof(cnn::real);
+    if (filterMatSize != szWeight)
+    {
+        throw ("filter size specification is wrong: specified = " + boost::lexical_cast<string>(szWeight)+" actual size = " + boost::lexical_cast<string>(filterMatSize));
+    }
+
+    if (training)
+    {
+        CHECK_CUDNN(cudnnRNNForwardTraining(cudnn_handle,
+            rnnDesc,
+            xDesc,
+            xs[0]->v,
+            hxDesc,
+            xs[2]->v,
+            cxDesc,
+            xs[3]->v,
+            wDesc,
+            xs[1]->v,
+            yDesc,
+            fx.v,
+            hyDesc,
+            fx.v + hyPos,
+            cyDesc,
+            fx.v + cyPos,
+            workspace,
+            workSize,
+            reserveSpace,
+            reserveSize));
+    }
+    else
+    {
+        CHECK_CUDNN(cudnnRNNForwardInference(cudnn_handle,
+            rnnDesc,
+            xDesc,
+            xs[0]->v,
+            hxDesc,
+            xs[2]->v,
+            cxDesc,
+            xs[3]->v,
+            wDesc,
+            xs[1]->v,
+            yDesc,
+            fx.v,
+            hyDesc,
+            xs[4]->v,
+            cyDesc,
+            xs[5]->v,
+            workspace,
+            workSize));
+    }
+    CUDA_CHECK(cudaDeviceSynchronize());
+}
+
+void CUDNNRnn::backward_impl(const vector<const Tensor*>& xs,
+    const Tensor& fx,
+    const Tensor& dEdf,
+    unsigned i,
+    Tensor& dEdxi) const {
+
+    int colSize = seqLength * miniBatch;
+    int hyPos = *hy_pos * sizeof(cnn::real);
+    int cyPos = *cy_pos * sizeof(cnn::real);
+
+    CUDA_CHECK(cudaDeviceSynchronize());
+    switch (i){
+    case 0:
+        CHECK_CUDNN(cudnnRNNBackwardData(cudnn_handle,
+            rnnDesc,
+            yDesc,
+            fx.v,
+            dyDesc,
+            dEdf.v,
+            dhyDesc,
+            nullptr,
+            dcyDesc,
+            nullptr,
+            wDesc,
+            xs[1]->v,
+            hyDesc,
+            xs[2]->v,
+            cyDesc,
+            xs[3]->v,
+            dxDesc,
+            dEdxi.v,
+            dhxDesc,
+            nullptr,
+            dcxDesc,
+            nullptr,
+            workspace,
+            workSize,
+            reserveSpace,
+            reserveSize));
+        break;
+    case 1:
+        CHECK_CUDNN(cudnnRNNBackwardWeights(cudnn_handle,
+            rnnDesc,
+            xDesc,
+            xs[0]->v,
+            hxDesc,
+            xs[2]->v,
+            yDesc,
+            fx.v,
+            workspace,
+            workSize,
+            dwDesc,
+            dEdxi.v,
+            reserveSpace,
+            reserveSize));
+        break;
+    case 2:
+        break;
+    case 3:
+        break;
+    default:
+        throw("cudnn_rnn backward: unsupported input index " + boost::lexical_cast<string>(i));
+    }
+    CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 } // namespace cnn

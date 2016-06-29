@@ -2,6 +2,7 @@
 #define CNN_NODES_H_
 
 #include "cnn/cnn.h"
+#include <cudnn.h>
 
 namespace cnn {
 
@@ -868,6 +869,109 @@ struct Zeroes : public Node {
   Dim dim;
 };
 
+struct CUDNNRnn : public Node {
+
+    cudnnTensorFormat_t tensorFormat;
+    cudnnDataType_t dataType;
+
+    // Set up tensor descriptors. x/y/dx/dy are arrays, one per time step.
+    cudnnTensorDescriptor_t *xDesc, *yDesc, *dxDesc, *dyDesc;
+    cudnnTensorDescriptor_t hxDesc, cxDesc;
+    void * hx, *cx; /// initial hidden state activity
+    cudnnTensorDescriptor_t hyDesc, cyDesc;
+    unsigned *hy_pos, *cy_pos; 
+    void * hy, *cy;
+    cudnnTensorDescriptor_t dhxDesc, dcxDesc;
+    cudnnTensorDescriptor_t dhyDesc, dcyDesc;
+
+    cudnnDropoutDescriptor_t dropoutDesc;
+    size_t stateSize;
+    void *states;
+
+    float dropout;
+
+    int *dimA;
+    int seqLength; /// sequence length for one input, 
+    int miniBatch; /// number of sentences to be processed in parallel
+    int inputSize; /// input feature dimension
+    int hiddenSize; /// the hidden layer dimension
+    int numLayers; /// number of hidden layers
+    bool bidirectional; /// whether to bidirectional RNN
+
+    cudnnRNNDescriptor_t rnnDesc;
+    cudnnRNNMode_t RNNMode;
+    int mode;
+
+    // This needs to be done after the rnn descriptor is set as otherwise
+    // we don't know how many parameters we have to allocate
+    void ** w; 
+    cudnnFilterDescriptor_t wDesc, dwDesc;
+
+
+    // work space and memory to reserve
+    void *workspace;
+    void *reserveSpace;
+    size_t workSize;
+    size_t reserveSize;
+
+    float *timeForward, *timeBackward1, *timeBackward2;
+    cudaEvent_t start, stop;
+
+    bool training;
+
+    size_t weightsSize;
+    void setupParameter();
+
+    void setupWorkSpace();
+
+    void speedOfRNN();
+
+    void createHandles() ;
+    void destroyHandles();
+
+    /// CUDNNRnn(obs)
+    explicit CUDNNRnn(const std::initializer_list<VariableIndex>& a, bool forTraining, int seqLength, int nutt, int inputSize, int hiddenSize, int numLayers, bool bidirectional) : Node(a), miniBatch(nutt), bidirectional(bidirectional), hiddenSize(hiddenSize), inputSize(inputSize), numLayers(numLayers), training(forTraining), seqLength(seqLength)
+    {
+        dimA = new int[3];
+        timeForward = new float[1];
+        timeBackward1 = new float[1];
+        timeBackward2 = new float[1];
+
+        switch (sizeof(cnn::real))
+        {
+            case 2: dataType = CUDNN_DATA_HALF; break;
+            case 4: dataType = CUDNN_DATA_FLOAT; break;
+            case 8: dataType = CUDNN_DATA_DOUBLE; break;
+            default: throw("Unsupported data type");
+        }
+        tensorFormat = CUDNN_TENSOR_NCHW;
+
+        hy_pos = new unsigned[1];
+        cy_pos = new unsigned[1];
+        w = new void *[1];
+
+        createHandles();
+    }
+    std::string as_string(const std::vector<std::string>& arg_names) const override;
+    Dim dim_forward(const std::vector<Dim>& xs) const override;
+    void forward_impl(const std::vector<const Tensor*>& xs, Tensor& fx) const override;
+    void backward_impl(const std::vector<const Tensor*>& xs,
+        const Tensor& fx,
+        const Tensor& dEdf,
+        unsigned i,
+        Tensor& dEdxi) const override;
+    ~CUDNNRnn() {
+        destroyHandles();
+        delete dimA;
+        delete timeForward;
+        delete timeBackward1;
+        delete timeBackward2;
+        delete hy;
+        delete cy;
+        delete w;
+    }
+
+};
 } // namespace cnn
 
 #endif
