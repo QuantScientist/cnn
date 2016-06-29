@@ -154,6 +154,8 @@ template <typename T>
 inline Expression affine_transform(const T& xs) { return detail::f<AffineTransform>(xs); }
 inline Expression affine_transform(const std::initializer_list<Expression>& xs) { return detail::f<AffineTransform>(xs); }
 
+Expression cudnn_rnn(const Expression& x, const Expression& f, const Expression& hx, const Expression& cx, 
+    bool forTraining = true, int seqLength = 1, int nutt = 1, int inputSize = 1, int hiddenSize = 1, int numLayers = 1, bool bidirectional = false);
 
 } }
 

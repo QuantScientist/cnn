@@ -100,4 +100,9 @@ Expression sum_batches(const Expression& x) { return Expression(x.pg, x.pg->add_
 
 Expression kmh_ngram(const Expression& x, unsigned n) { return Expression(x.pg, x.pg->add_function<KMHNGram>({x.i}, n)); }
 
+Expression cudnn_rnn(const Expression& x, /// input
+    const Expression& f, /// output
+    const Expression& hx, const Expression& cx,  /// initial hidden state activity
+    bool forTraining, int seqLength, int nutt, int inputSize, int hiddenSize, int numLayers, bool bidirectional) { return Expression(x.pg, x.pg->add_function<CUDNNRnn>({ x.i, f.i, hx.i, cx.i }, forTraining, seqLength, nutt, inputSize, hiddenSize, numLayers, bidirectional)); }
+
 } }
