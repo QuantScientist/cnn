@@ -156,7 +156,7 @@ struct Pooling : public Node {
         CHECK_CUDNN(cudnnDestroyTensorDescriptor(dstTensorDesc));
     }
 
-    /// conv2d(obs, filter, bias)
+    /// Pooling(obs)
     explicit Pooling(const std::initializer_list<VariableIndex>& a) : Node(a){
         createHandles();
         n = new int[1]; c = new int[1]; h = new int[1]; w = new int[1];
