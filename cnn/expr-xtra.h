@@ -488,7 +488,11 @@ vector<Expression> attention_to_key_and_retreive_value(const Expression & M_t, c
 vector<Expression> alignmatrix_to_source(vector<Expression> & v_src, const vector<unsigned>& v_slen,
     Expression i_U, Expression src, Expression i_va, Expression i_Wa,
     Expression i_h_tm1, unsigned a_dim, unsigned feat_dim, unsigned nutt, ComputationGraph& cg);
-    
+
+/// for cudnn helper function
+vector<Expression> cudnn_seperate_outputs_from_hidden_states(const Expression& i_cudnn_output,
+    unsigned row_dim, unsigned seqLength, unsigned nutt, unsigned num_layer);
+
 vector<cnn::real> get_value(Expression nd, ComputationGraph& cg);
 vector<cnn::real> get_error(Expression nd, ComputationGraph& cg);
 

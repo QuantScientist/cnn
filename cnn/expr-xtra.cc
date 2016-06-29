@@ -781,6 +781,21 @@ vector<Expression> alignmatrix_to_source(vector<Expression> & v_src, const vecto
     return v_alignment;
 }
 
+vector<Expression> cudnn_seperate_outputs_from_hidden_states(const Expression& i_cudnn_output, 
+    unsigned row_dim, unsigned seqLength, unsigned nutt, unsigned num_layer)
+{
+    vector<Expression> i_output;
+    Expression i_rnn_response = columnslices(i_cudnn_output, row_dim, 0, seqLength * nutt);
+    Expression i_rnn_hy = columnslices(i_cudnn_output, row_dim, seqLength * nutt, seqLength* nutt + num_layer);
+    Expression i_rnn_cy = columnslices(i_cudnn_output, row_dim, seqLength * nutt + num_layer, seqLength* nutt + 2*num_layer);
+
+    i_output.push_back(i_rnn_response);
+    i_output.push_back(i_rnn_hy);
+    i_output.push_back(i_rnn_cy);
+
+    return i_output;
+}
+
 void display_value(const Expression &source, ComputationGraph &cg, string what_to_say)
 {
     const Tensor &a = cg.get_value(source.i);
