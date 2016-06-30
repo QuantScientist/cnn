@@ -390,11 +390,12 @@ Dim Conv2D::dim_forward(const vector<Dim>& xs) const {
     }
     *n = 1;
     *c = 1;
-    *h = xs[0].rows();
-    *w = xs[0].cols();
-    gpu::convoluteForwardOutputSize(1, 1, xs[1].rows(), xs[1].cols(), n, c, h, w, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, filterDesc, convDesc);
+    *h = xs[0].cols();  /// input is column major
+    *w = xs[0].rows();
+    gpu::convoluteForwardOutputSize(1, xs[1].d[0], xs[1].d[1], xs[1].d[2], n, c, h, w, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, filterDesc, convDesc);
 
-    return Dim({ (unsigned)*h, (unsigned)*w }); 
+    /// column major
+    return Dim({ (unsigned)*w, (unsigned)*h, (unsigned)*c }); 
 }
 
 void Conv2D::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {
@@ -444,11 +445,13 @@ Dim Pooling::dim_forward(const vector<Dim>& xs) const {
         throw std::invalid_argument("Pooling requires 1 input");
     }
     *n = 1;
-    *c = 1;
-    *h = xs[0].rows();
-    *w = xs[0].cols();
-    gpu::poolingForwardOutputSize(poolingDesc, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, n, c, h, w);
-    return Dim({ (unsigned)*h, (unsigned)*w });
+    /// column major input
+    *c = xs[0].d[2];
+    *h = xs[0].d[1];
+    *w = xs[0].d[0];
+    gpu::poolingForwardOutputSize(poolingDesc, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, n, c, h, w,
+        window_x, window_y, stride_x, stride_y);
+    return Dim({ (unsigned)*w, (unsigned)*h, (unsigned)*c });
 }
 
 void Pooling::forward_impl(const vector<const Tensor*>& xs, Tensor& fx) const {

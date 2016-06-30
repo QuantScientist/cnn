@@ -142,6 +142,7 @@ struct Pooling : public Node {
     cudnnTensorFormat_t tensorFormat;
     cudnnDataType_t dataType;
     int *n, *c, *h, *w;
+    int window_x, window_y, stride_x, stride_y;
 
     void createHandles()
     {
@@ -157,7 +158,7 @@ struct Pooling : public Node {
     }
 
     /// Pooling(obs)
-    explicit Pooling(const std::initializer_list<VariableIndex>& a) : Node(a){
+    explicit Pooling(const std::initializer_list<VariableIndex>& a, int window_x, int window_y, int stride_x, int stride_y) : Node(a), window_x(window_x), window_y(window_y), stride_x(stride_x), stride_y(stride_y){
         createHandles();
         n = new int[1]; c = new int[1]; h = new int[1]; w = new int[1];
         *n = 0;
