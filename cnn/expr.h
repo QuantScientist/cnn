@@ -102,7 +102,7 @@ Expression fold_rows(const Expression& x, unsigned nrows=2);
 Expression sum_cols(const Expression& x);
 Expression kmh_ngram(const Expression& x, unsigned n);
 Expression conv2d(const Expression& x, const Expression& f, const Expression & b);
-Expression max_pooling(const Expression& x);
+Expression max_pooling(const Expression& x, int window_x, int window_y, int stride_x, int stride_y);
 
 // Sum the results of multiple batches
 Expression sum_batches(const Expression& x);
