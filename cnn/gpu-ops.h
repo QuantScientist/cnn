@@ -152,7 +152,9 @@ namespace gpu {
         cudnnTensorDescriptor_t dstTensorDesc,
         cudnnTensorFormat_t tensorFormat,
         cudnnDataType_t dataType,
-        int *n, int *c, int *h, int *w);
+        int *n, int *c, int *h, int *w,
+        int window_x, int window_y,
+        int stride_x, int stride_y);
 
     void poolForward(
         cnn::real* srcData, cnn::real* dstData,

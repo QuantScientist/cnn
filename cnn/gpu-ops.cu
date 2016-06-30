@@ -1170,12 +1170,17 @@ void poolingForwardOutputSize(cudnnPoolingDescriptor_t poolingDesc,
     cudnnTensorDescriptor_t dstTensorDesc,
     cudnnTensorFormat_t tensorFormat,
     cudnnDataType_t dataType,
-    int *n, int *c, int *h, int *w)
+    int *n, int *c, int *h, int *w,
+    int window_x, int window_y, 
+    int stride_x, int stride_y)
 {
     const int poolDims = 2;
-    int windowDimA[poolDims] = { 2, 2 };
+//    int windowDimA[poolDims] = { 2, 2 };
+//    int paddingA[poolDims] = { 0, 0 };
+//    int strideA[poolDims] = { 2, 2 };
+    int windowDimA[poolDims] = { window_x, window_y };
     int paddingA[poolDims] = { 0, 0 };
-    int strideA[poolDims] = { 2, 2 };
+    int strideA[poolDims] = { stride_x, stride_y };
     CHECK_CUDNN(cudnnSetPoolingNdDescriptor(poolingDesc,
         CUDNN_POOLING_MAX,
         CUDNN_PROPAGATE_NAN,
