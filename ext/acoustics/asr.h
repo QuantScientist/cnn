@@ -27,10 +27,10 @@ public:
         unsigned vocab_size_tgt,
         const vector<unsigned>& hidden_dim,
         map<string, cnn::real>& additional_argument,
+        map<string, vector<unsigned>>& additional_vec_arguments,
         cnn::real iscale = 1.0)
         : s2tmodel(model, vocab_size_tgt, layers, hidden_dim, 
-        additional_argument,
-        (int) additional_argument["replicatehidden"],
+        additional_argument, additional_vec_arguments,
         (int) additional_argument["decoder_use_additional_input"],
         iscale), hidden_dim(hidden_dim)
     {
@@ -156,10 +156,11 @@ public:
         unsigned vocab_size_tgt,
         const vector<unsigned>& hidden_dim,
         map<string, cnn::real>& additional_argument,
+        map<string, vector<unsigned>>& additional_vec_arguments,
         cnn::real iscale = 1.0)
         : s2tmodel(model, vocab_size_tgt, layers, hidden_dim,
         additional_argument,
-        (int)additional_argument["replicatehidden"],
+        additional_vec_arguments,
         (int)additional_argument["decoder_use_additional_input"],
         iscale), hidden_dim(hidden_dim)
     {
@@ -262,3 +263,4 @@ public:
     }
 
 };
+

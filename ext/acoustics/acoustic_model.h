@@ -38,7 +38,6 @@ namespace cnn {
 
         unsigned vocab_size_tgt;
         vector<unsigned int> hidden_dim;
-        int rep_hidden;
         int decoder_use_additional_input;
 
         // state variables used in the above two methods
@@ -50,7 +49,6 @@ namespace cnn {
         unsigned slen;
 
         // for initial hidden state
-        vector<Parameters*> p_h0;
         vector<Expression> i_h0;
 
         Parameters* p_trns_src2hidden;
@@ -79,7 +77,7 @@ namespace cnn {
             const vector<unsigned int>& layers,
             const vector<unsigned int>& hidden_dims,
             const map<string, cnn::real>& additional_params,
-            int hidden_replicates, 
+            const map<string, vector<unsigned>>& additional_vec_arguments,
             int decoder_use_additional_input, 
             cnn::real iscale = 1.0) :
             layers(layers),
@@ -87,8 +85,7 @@ namespace cnn {
             encoder_fwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
             encoder_bwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
             decoder_use_additional_input(decoder_use_additional_input),
-            vocab_size_tgt(vocab_size_tgt),
-            rep_hidden(hidden_replicates)
+            vocab_size_tgt(vocab_size_tgt)
         {
             hidden_dim = hidden_dims;
 
@@ -100,11 +97,6 @@ namespace cnn {
 
             p_trns_src2hidden = model.add_parameters({ hidden_dim[ENCODER_LAYER], hidden_dim[EMBEDDING_LAYER] }, iscale, "trans for obs to encoder");
 
-            for (size_t i = 0; i < layers[ENCODER_LAYER] * rep_hidden; i++)
-            {
-                p_h0.push_back(model.add_parameters({ hidden_dim[ENCODER_LAYER] }, iscale));
-                p_h0.back()->reset_to_zero();
-            }
             zero.resize(hidden_dim[EMBEDDING_LAYER], 0);  /// for the no obs observation
 
             /// embedding to encoding
@@ -161,10 +153,6 @@ namespace cnn {
             if (i_h0.size() == 0)
             {
                 i_h0.clear();
-                for (auto p : p_h0)
-                {
-                    i_h0.push_back(concatenate_cols(vector<Expression>(nutt, parameter(cg, p))));
-                }
 
                 i_bias = parameter(cg, p_bias);
                 i_R = parameter(cg, p_R);
@@ -381,8 +369,9 @@ namespace cnn {
         Expression i_bias, i_R, i_bias_mb;
 
         vector<unsigned int> layers;
-        Decoder decoder;  // for decoder at each turn
-        Builder encoder_fwd, encoder_bwd; /// for encoder at each turn
+        vector<unsigned int> field_map_size; //number of filters at each layer
+        vector<unsigned int> conv_block_x, conv_block_y; // receptive field dimension in x and y
+        vector<unsigned int> stride_x, stride_y; // cnn' stride
 
         /// for alignment to source
         Parameters* p_U;
@@ -392,8 +381,6 @@ namespace cnn {
 
         unsigned vocab_size_tgt;
         vector<unsigned int> hidden_dim;
-        int rep_hidden;
-        int decoder_use_additional_input;
 
         // state variables used in the above two methods
         vector<Expression> v_src;
@@ -421,11 +408,15 @@ namespace cnn {
         vector<cnn::real> zero;
         Expression i_zero_emb; /// Expresison for embedding of zeros in the embedding space
     
-        Parameters* p_filter; /// convolution filter
-        Expression i_filter; 
+        vector<Parameters*> p_filter; /// convolution filter
+        vector<Expression> i_filter; 
+        unsigned n_kernels;
 
-        Parameters* p_conv_bias; /// convolution filter bias
-        Expression i_conv_bias;
+        vector<Parameters*> p_conv_bias; /// convolution filter bias
+        vector<Expression> i_conv_bias;
+
+        vector<unsigned> pooling_kernel_x;
+        vector<unsigned> pooling_kernel_y;
 
         Parameters * p_summary;  /// convert pooling output to output layer
         Expression i_summary;
@@ -444,7 +435,10 @@ namespace cnn {
         cnn::real pr_threshold; /// probability threshold, above which an output is considered occured
 
     public:
-        unsigned m_conv_block_x, m_conv_block_y;
+        unsigned fd; /// source-side dimension after convoluion and pooling
+
+    public:
+        map<string, vector<unsigned>> additional_vec_arguments;
 
     public:
         CNNAcousticModel() {};
@@ -452,16 +446,12 @@ namespace cnn {
             const vector<unsigned int>& layers,
             const vector<unsigned int>& hidden_dims,
             const map<string, cnn::real>& additional_params,
-            int hidden_replicates,
+            const map<string, vector<unsigned>>& additional_varguments, 
             int decoder_use_additional_input,
             cnn::real iscale = 1.0) :
             layers(layers),
-            decoder(layers[DECODER_LAYER], vector<unsigned>{hidden_dims[DECODER_LAYER] + decoder_use_additional_input * hidden_dims[ENCODER_LAYER], hidden_dims[DECODER_LAYER], hidden_dims[DECODER_LAYER] }, &model, iscale),
-            encoder_fwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
-            encoder_bwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
-            decoder_use_additional_input(decoder_use_additional_input),
             vocab_size_tgt(vocab_size_tgt),
-            rep_hidden(hidden_replicates)
+            additional_vec_arguments(additional_varguments)
         {
             hidden_dim = hidden_dims;
 
@@ -473,28 +463,38 @@ namespace cnn {
 
             p_trns_src2hidden = model.add_parameters({ hidden_dim[ENCODER_LAYER], hidden_dim[EMBEDDING_LAYER] }, iscale, "trans for obs to encoder");
 
-            for (size_t i = 0; i < layers[ENCODER_LAYER] * rep_hidden; i++)
-            {
-                p_h0.push_back(model.add_parameters({ hidden_dim[ENCODER_LAYER] }, iscale));
-                p_h0.back()->reset_to_zero();
-            }
             zero.resize(hidden_dim[EMBEDDING_LAYER], 0);  /// for the no obs observation
 
-            m_conv_block_x = 8;
-            m_conv_block_y = 8;
+            conv_block_x = additional_vec_arguments["conv_block_x"];
+            conv_block_y = additional_vec_arguments["conv_block_y"];
+            pooling_kernel_x = additional_vec_arguments["pooling_kernel_x"];
+            pooling_kernel_y = additional_vec_arguments["pooling_kernel_y"];
+            stride_x = additional_vec_arguments["stride_x"];
+            stride_y = additional_vec_arguments["stride_y"];
+            field_map_size = additional_vec_arguments["field_map_size"];
 
-            /// embedding to encoding
-            unsigned lr = (hidden_dim[EMBEDDING_LAYER] - m_conv_block_y) / 2;
-            p_emb2dec = model.add_parameters({ vocab_size_tgt, hidden_dim[DECODER_LAYER] });
-            p_emb2dec_b = model.add_parameters({ hidden_dim[DECODER_LAYER] });
+            unsigned input_dim = hidden_dim[EMBEDDING_LAYER];
+            unsigned output_nfilter = 0;
+            for (size_t i = 0; i < layers[ENCODER_LAYER]; i++)
+            {
+                /// embedding to encoding
+                fd = ceil((input_dim - conv_block_y[i] + 1) / (stride_y[i] + 0.0));
 
-            p_filter = model.add_parameters({ m_conv_block_x, m_conv_block_y }, iscale);
-            p_conv_bias = model.add_parameters({ 1 }, 0.0);
+                p_filter.push_back(model.add_parameters({ field_map_size[i], conv_block_x[i], conv_block_y[i] }, iscale));
+                p_conv_bias.push_back(model.add_parameters({ 1 }, 0.0));
 
-            p_summary = model.add_parameters({ hidden_dim[DECODER_LAYER] }, iscale);
-            i_h0.clear();
+                if (fd > 1)
+                    fd /= pooling_kernel_y[i];
+                else
+                {
+                    output_nfilter = field_map_size[i];
+                    break;
+                }
+                input_dim = fd;
+            }
 
-            p_merge = model.add_parameters({ lr }, iscale);
+            p_emb2dec = model.add_parameters({ vocab_size_tgt, output_nfilter }, iscale);
+            p_emb2dec_b = model.add_parameters({ vocab_size_tgt }, 0.0);
 
             pr_threshold = 0.0;
         };
@@ -507,13 +507,12 @@ namespace cnn {
         {
             turnid = 0;
 
-            i_h0.clear();
-
             v_errs.clear();
             src_feature_number = 0;
             tgt_words = 0;
 
             v_obs.clear();
+            i_filter.clear();
         }
 
     public:
@@ -526,12 +525,17 @@ namespace cnn {
         {
             nutt = obs.size();
 
-            if (i_h0.size() == 0)
+            if (i_filter.size() == 0)
             {
-                i_h0.clear();
-                for (auto p : p_h0)
+                i_filter.clear();
+                for (auto p : p_filter)
                 {
-                    i_h0.push_back(concatenate_cols(vector<Expression>(nutt, parameter(cg, p))));
+                    i_filter.push_back(parameter(cg, p)); 
+                }
+
+                for (auto p : p_conv_bias)
+                {
+                    i_conv_bias.push_back(parameter(cg, p));
                 }
 
                 i_bias = parameter(cg, p_bias);
@@ -543,26 +547,10 @@ namespace cnn {
 
                 i_emb2dec = parameter(cg, p_emb2dec);
                 i_emb2dec_b = concatenate_cols(vector<Expression>(nutt, parameter(cg, p_emb2dec_b)));
-
-                i_filter = parameter(cg, p_filter);
-                i_conv_bias = parameter(cg, p_conv_bias);
-
-                i_summary = parameter(cg, p_summary);
-                i_merge = parameter(cg, p_merge);
             }
 
             size_t n_turns = 0;
             std::vector<Expression> source_embeddings;
-
-            encoder_fwd.new_graph(cg);
-            encoder_fwd.set_data_in_parallel(nutt);
-            encoder_fwd.start_new_sequence();
-            encoder_bwd.new_graph(cg);
-            encoder_bwd.set_data_in_parallel(nutt);
-            encoder_bwd.start_new_sequence();
-            decoder.new_graph(cg);
-            decoder.set_data_in_parallel(nutt);
-            decoder.start_new_sequence();
 
             /// the source sentence has to be approximately the same length
             src_len = each_sentence_length(obs, hidden_dim[EMBEDDING_LAYER]);
@@ -570,28 +558,58 @@ namespace cnn {
                 src_feature_number += p * hidden_dim[EMBEDDING_LAYER];
 
             int ik_len = 0;
+            unsigned input_dim = hidden_dim[EMBEDDING_LAYER];
+            unsigned lc , ifd, ifilternbr; 
             for (auto&p : obs)
             {
-                Expression i_obs = transpose(input(cg, { hidden_dim[EMBEDDING_LAYER], src_len[ik_len] }, p));
-                Expression i_conv = conv2d(i_obs, i_filter, i_conv_bias);
-                Expression i_pooled = max_pooling(i_conv);
-                int lc = ceil((src_len[ik_len] - m_conv_block_x) / 2.0);
-                vector<Expression> v_combine(lc, i_summary);
-                v_obs.push_back(concatenate_cols(v_combine) * i_pooled); /// a representation of this source
+                unsigned input_length = src_len[ik_len];
+                Expression i_obs = input(cg, { hidden_dim[EMBEDDING_LAYER], src_len[ik_len] }, p);  /// d X T
+                for (int lyr = 0; lyr < i_filter.size(); lyr++)
+                {
+                    Expression i_conv = conv2d(i_obs, i_filter[lyr], i_conv_bias[lyr], stride_x[lyr], stride_y[lyr]);
+                    lc = ceil((input_length - conv_block_x[lyr] + 1) / (stride_x[lyr] + 0.0));
+                    ifd = ceil((input_dim - conv_block_y[lyr] + 1) / (stride_y[lyr] + 0.0));
+                    ifilternbr = field_map_size[lyr];
+
+                    /// pooling without overlap
+                    if (ifd > 1)
+                    {
+                        Expression i_pooled = max_pooling(i_conv, pooling_kernel_x[lyr], pooling_kernel_y[lyr], pooling_kernel_x[lyr], pooling_kernel_y[lyr]);
+                        lc /= pooling_kernel_x[lyr];
+                        if (lc <= 0)
+                            throw("convolution has reduced to zero legth");
+
+                        ifd /= pooling_kernel_y[lyr];
+                        if (ifd <= 0)
+                            throw("convolution has reduced to zero dimension");
+                        i_obs = i_pooled;
+                    }
+                    else
+                    {
+                        i_obs = i_conv;
+                    }
+                    input_dim = ifd;
+                    input_length = lc;
+
+                    if (input_dim == 1)
+                        break;
+                }
+
+                if (input_dim > 1)
+                    throw("need more layers in order to reduce feature to 1 x sub-sampled-size x nfitler");
+                vector<Expression> v_combine;
+                Expression i_res = reshape(i_obs, {lc, ifilternbr});
+                /// need something such as attention to pick the right input 
+                /// at this moment, just max-pooling
+                Expression i_pooled = max_pooling(i_res, lc, 1, lc-1, 1); 
+                v_obs.push_back(reshape(i_pooled, { ifilternbr, 1 }));
                 ik_len++;
             }
         };
 
         Expression decoder_step(ComputationGraph& cg)
         {
-            vector<Expression> v_x_t;
-
-            for (auto& p : v_obs)
-            {
-                Expression i_obs = p * i_merge;
-                v_x_t.push_back(i_obs);
-            }
-            Expression i_output = i_emb2dec * (concatenate_cols(v_x_t) + i_emb2dec_b);
+            Expression i_output = i_emb2dec * concatenate_cols(v_obs) + i_emb2dec_b;
             return i_output;
         }
 
@@ -681,7 +699,6 @@ namespace cnn {
 
         unsigned vocab_size_tgt;
         vector<unsigned int> hidden_dim;
-        int rep_hidden;
         int decoder_use_additional_input;
 
         // state variables used in the above two methods
@@ -726,15 +743,12 @@ namespace cnn {
         cnn::real pr_threshold; /// probability threshold, above which an output is considered occured
 
     public:
-        unsigned m_conv_block_x, m_conv_block_y;
-
-    public:
         RNNAcousticModel() {};
         RNNAcousticModel(cnn::Model& model, unsigned int vocab_size_tgt,
             const vector<unsigned int>& layers,
             const vector<unsigned int>& hidden_dims,
             const map<string, cnn::real>& additional_params,
-            int hidden_replicates,
+            const map<string, vector<unsigned>>& additional_vec_arguments,
             int decoder_use_additional_input,
             cnn::real iscale = 1.0) :
             layers(layers),
@@ -742,8 +756,7 @@ namespace cnn {
             encoder_fwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
             encoder_bwd(layers[ENCODER_LAYER], vector<unsigned>{hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER], hidden_dims[ENCODER_LAYER]}, &model, iscale),
             decoder_use_additional_input(decoder_use_additional_input),
-            vocab_size_tgt(vocab_size_tgt),
-            rep_hidden(hidden_replicates)
+            vocab_size_tgt(vocab_size_tgt)
         {
             bidirectional = true;
 
@@ -758,9 +771,6 @@ namespace cnn {
             p_trns_src2hidden = model.add_parameters({ hidden_dim[ENCODER_LAYER], hidden_dim[EMBEDDING_LAYER] }, iscale, "trans for obs to encoder");
 
             zero.resize(hidden_dim[EMBEDDING_LAYER], 0);  /// for the no obs observation
-
-            m_conv_block_x = 8;
-            m_conv_block_y = 8;
 
             /// embedding to encoding
             p_emb2dec = model.add_parameters({ vocab_size_tgt, hidden_dim[ENCODER_LAYER] * (bidirectional?2:1)});
