@@ -1179,7 +1179,24 @@ int audio_main_body(variables_map vm, size_t nreplicate = 0)
     map<string, cnn::real> additional_arg;
     additional_arg["replicatehidden"] = nreplicate;
     additional_arg["decoder_use_additional_input"] = 0;
-    rnn_t hred(model, layers, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, additional_arg, vm["scale"].as<cnn::real>());
+
+    map<string, vector<unsigned>> additional_vec_arguments;
+    if (vm["schema"].as<string>() == "Seq2StructureViaCNN")
+    {
+        additional_vec_arguments["conv_block_x"] = vector<unsigned>(LAYERS, 3);
+        additional_vec_arguments["conv_block_y"] = vector<unsigned>(LAYERS, 5);
+        additional_vec_arguments["pooling_kernel_x"] = vector<unsigned>(LAYERS, 2);
+        additional_vec_arguments["pooling_kernel_y"] = vector<unsigned>(LAYERS, 2);
+        vector<unsigned> fnbr(LAYERS, 3);
+        for (int k = 0; k < LAYERS; k++)
+            fnbr[k] = 3 + 2 * k;
+        additional_vec_arguments["field_map_size"] = fnbr;
+        additional_vec_arguments["stride_x"] = vector<unsigned>(LAYERS, 2);
+        additional_vec_arguments["stride_y"] = vector<unsigned>(LAYERS, 4);
+    }
+    rnn_t hred(model, layers, VOCAB_SIZE_TGT, (const vector<unsigned>&) dims, additional_arg, 
+        additional_vec_arguments,
+        vm["scale"].as<cnn::real>());
 
     if (vm.count("initialise"))
     {
