@@ -837,6 +837,7 @@ void convBackwardBias(const cudnnTensorDescriptor_t dstTensorDesc,
 void convoluteForwardOutputSize(const int conv_inputs, 
     const int conv_outputs, const int conv_kernel_dim_x,
     const int conv_kernel_dim_y,
+    const unsigned stride_x, const unsigned stride_y,
     int* n, int* c, int* h, int* w,
     cudnnTensorDescriptor_t srcTensorDesc,
     cudnnTensorDescriptor_t dstTensorDesc,
@@ -861,7 +862,8 @@ void convoluteForwardOutputSize(const int conv_inputs,
 
     const int convDims = 2;
     int padA[convDims] = { 0, 0 };
-    int filterStrideA[convDims] = { 1, 1 };
+    /// for fast speed, only overlap one
+    int filterStrideA[convDims] = { stride_x, stride_y };
     int upscaleA[convDims] = { 1, 1 };
     cudnnDataType_t  convDataType = dataType;
     if (dataType == CUDNN_DATA_HALF) {
@@ -1175,12 +1177,9 @@ void poolingForwardOutputSize(cudnnPoolingDescriptor_t poolingDesc,
     int stride_x, int stride_y)
 {
     const int poolDims = 2;
-//    int windowDimA[poolDims] = { 2, 2 };
-//    int paddingA[poolDims] = { 0, 0 };
-//    int strideA[poolDims] = { 2, 2 };
-    int windowDimA[poolDims] = { window_x, window_y };
+    int windowDimA[poolDims] = { window_y, window_x };
     int paddingA[poolDims] = { 0, 0 };
-    int strideA[poolDims] = { stride_x, stride_y };
+    int strideA[poolDims] = { stride_y , stride_y};
     CHECK_CUDNN(cudnnSetPoolingNdDescriptor(poolingDesc,
         CUDNN_POOLING_MAX,
         CUDNN_PROPAGATE_NAN,

@@ -101,6 +101,7 @@ namespace gpu {
     void convoluteForwardOutputSize(const int conv_inputs,
         const int conv_outputs, const int conv_kernel_dim_x,
         const int conv_kernel_dim_y,
+        const unsigned stride_x, const unsigned stride_y,
         int* n, int* c, int* h, int* w,
         cudnnTensorDescriptor_t srcTensorDesc,
         cudnnTensorDescriptor_t dstTensorDesc,
