@@ -85,6 +85,7 @@ struct Conv2D: public Node {
     cudnnTensorDescriptor_t biasTensorDesc;
     int convAlgorithm;
     int *n, *c, *h, *w;
+    unsigned stride_x, stride_y;
 
     void createHandles()
     {
@@ -104,7 +105,9 @@ struct Conv2D: public Node {
     }
 
     /// conv2d(obs, filter, bias)
-    explicit Conv2D(const std::initializer_list<VariableIndex>& a) : Node(a){
+    explicit Conv2D(const std::initializer_list<VariableIndex>& a, unsigned stride_x, unsigned stride_y) : 
+        Node(a), stride_x(stride_x), stride_y(stride_y)
+    {
         createHandles();
         n = new int[1]; c = new int[1]; h = new int[1]; w = new int[1];
         *n = 0;

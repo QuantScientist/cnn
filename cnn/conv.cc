@@ -389,10 +389,19 @@ Dim Conv2D::dim_forward(const vector<Dim>& xs) const {
         throw std::invalid_argument("Conv2D requires 3 inputs");
     }
     *n = 1;
-    *c = 1;
-    *h = xs[0].cols();  /// input is column major
-    *w = xs[0].rows();
-    gpu::convoluteForwardOutputSize(1, xs[1].d[0], xs[1].d[1], xs[1].d[2], n, c, h, w, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, filterDesc, convDesc);
+    if (xs[0].nd == 3)
+    {
+        *c = xs[0].d[2];
+        *h = xs[0].d[1];  /// input is column major
+        *w = xs[0].d[0];
+    }
+    else
+    {
+        *c = 1;
+        *h = xs[0].cols();   /// input is column major
+        *w = xs[0].rows();
+    }
+    gpu::convoluteForwardOutputSize(*c, xs[1].d[0], xs[1].d[1], xs[1].d[2], stride_x, stride_y, n, c, h, w, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, filterDesc, convDesc);
 
     /// column major
     return Dim({ (unsigned)*w, (unsigned)*h, (unsigned)*c }); 
@@ -446,7 +455,14 @@ Dim Pooling::dim_forward(const vector<Dim>& xs) const {
     }
     *n = 1;
     /// column major input
-    *c = xs[0].d[2];
+    if (xs[0].nd == 3)
+    {
+        *c = xs[0].d[2];
+    }
+    else if (xs[0].nd == 2)
+    {
+        *c = 1;
+    }
     *h = xs[0].d[1];
     *w = xs[0].d[0];
     gpu::poolingForwardOutputSize(poolingDesc, srcTensorDesc, dstTensorDesc, tensorFormat, dataType, n, c, h, w,
